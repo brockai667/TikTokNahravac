@@ -1,0 +1,48 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Tag 'latest' sa posunie na aktualny commit, release sa nizsie aktualizuje (APK sa nahradi).
+      - name: Move 'latest' tag
+        run: |
+          git tag -f latest
+          git push -f origin latest
+
+      - name: Publish release 'latest'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: TikTok Nahrávač (latest)
+          body: Posledný debug build z vetvy main. Stiahni app-debug.apk a nainštaluj.
+          files: app/build/outputs/apk/debug/app-debug.apk
+          prerelease: false

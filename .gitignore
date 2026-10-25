@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+app/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Android artefakty a kluce (nikdy necommitovat)
+*.apk
+*.aab
+*.jks
+*.keystore

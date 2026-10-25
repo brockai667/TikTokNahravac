@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- trojuholnik "play" -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M42,32 L42,64 L68,48 Z" />
+    <!-- sipka nahor (nahravanie) -->
+    <path
+        android:fillColor="#FF25F4EE"
+        android:pathData="M54,84 L54,70 L47,70 L58,59 L69,70 L62,70 L62,84 Z" />
+</vector>

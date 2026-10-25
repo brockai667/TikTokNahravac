@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TikTok Nahrávač</string>
+
+    <!-- Hlavná obrazovka -->
+    <string name="btn_refresh">Obnoviť</string>
+    <string name="channel_header">%1$s  (%2$s)</string>
+    <string name="loading">Načítavam…</string>
+    <string name="load_error">Chyba načítania: %1$s</string>
+    <string name="channels_error">Nepodarilo sa načítať zoznam kanálov: %1$s</string>
+    <string name="no_channels">Žiadne kanály (channels.json je prázdny).</string>
+    <string name="no_episodes">Žiadne epizódy s videom.</string>
+
+    <!-- Epizóda -->
+    <string name="episode_title">Ep. %1$d – %2$s</string>
+    <string name="episode_due">Termín: %1$s</string>
+    <string name="due_unknown">neznámy</string>
+    <string name="status_not_downloaded">Nestiahnuté</string>
+    <string name="status_downloading">Sťahuje sa…</string>
+    <string name="status_downloaded">Stiahnuté</string>
+    <string name="status_failed">Sťahovanie zlyhalo</string>
+    <string name="done_mark">HOTOVO – nahrané z tohto telefónu</string>
+    <string name="btn_download">Stiahnuť + text</string>
+    <string name="btn_open_tiktok">Otvoriť v TikToku</string>
+    <string name="btn_mark_done">Označiť hotovo</string>
+    <string name="btn_unmark_done">Zrušiť označenie hotovo</string>
+
+    <!-- Správy -->
+    <string name="toast_downloading">Sťahujem video do Movies/TikTokNahravac. Popis je skopírovaný do schránky.</string>
+    <string name="toast_download_done">Video je stiahnuté.</string>
+    <string name="toast_download_failed">Sťahovanie zlyhalo. Skús znova.</string>
+    <string name="toast_download_error">Sťahovanie sa nepodarilo spustiť: %1$s</string>
+    <string name="toast_need_download">Najprv stiahni video.</string>
+    <string name="toast_no_uri">Súbor videa sa nenašiel. Stiahni ho znova.</string>
+    <string name="toast_account_hint">Účet: %1$s – prepni účet, vlož popis (podržať → Vložiť)</string>
+    <string name="toast_storage_denied">Bez povolenia úložiska sa video nedá stiahnuť.</string>
+    <string name="chooser_title">Nahrať video cez…</string>
+
+    <!-- Kalibrácia / dostupnosť -->
+    <string name="calibration_title">Kalibrácia (pre budúce automatické klikanie)</string>
+    <string name="calibration_hint">Služba dostupnosti je predvolene vypnutá. Zapni ju v Nastaveniach dostupnosti. Po stlačení tlačidla nižšie prepni do TikToku na obrazovku, ktorú chceš uložiť.</string>
+    <string name="btn_a11y_settings">Nastavenia dostupnosti</string>
+    <string name="btn_calibrate">Nahrať strom obrazovky (kalibrácia)</string>
+    <string name="btn_share_dump">Zdieľať posledný výpis</string>
+    <string name="toast_a11y_not_enabled">Najprv zapni službu „TikTok Nahrávač“ v Nastaveniach dostupnosti.</string>
+    <string name="toast_dump_requested">Prepni sa do TikToku. Obrazovka sa uloží ~%1$d s po tom, čo bude TikTok v popredí.</string>
+    <string name="toast_dump_saved">Strom obrazovky uložený: %1$s</string>
+    <string name="toast_dump_failed">Uloženie stromu zlyhalo: %1$s</string>
+    <string name="toast_dump_timeout">Kalibrácia vypršala – TikTok sa nedostal do popredia.</string>
+    <string name="toast_no_dump">Zatiaľ nie je žiadny výpis.</string>
+    <string name="share_dump_title">Zdieľať výpis obrazovky</string>
+    <string name="notif_channel_name">Kalibrácia TikToku</string>
+    <string name="notif_dump_title">Strom obrazovky uložený</string>
+    <string name="a11y_description">Číta strom obrazovky TikToku pre kalibráciu a v budúcnosti pomáha vyplniť popis a uverejniť video. Aplikácia o vás nič nezbiera ani neodosiela.</string>
+</resources>
