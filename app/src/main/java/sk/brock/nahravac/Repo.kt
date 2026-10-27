@@ -9,6 +9,7 @@ import java.net.URL
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Načítanie kanálov (assets) a stavu fabriky (state.json z GitHubu). Volať mimo hlavného vlákna. */
 object Repo {
@@ -30,13 +31,32 @@ object Repo {
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             val url = o.str("stateUrl") ?: continue
-            out.add(Channel(name = o.str("name") ?: url, tiktok = o.str("tiktok") ?: "", stateUrl = url))
+            out.add(
+                Channel(
+                    name = o.str("name") ?: url,
+                    tiktok = o.str("tiktok") ?: "",
+                    stateUrl = url,
+                    account = o.str("account"),
+                    format = (o.str("format") ?: FORMAT_STATE).lowercase(Locale.ROOT),
+                )
+            )
         }
         return out
     }
 
-    /** Najnovšie epizódy (podľa čísla) s videom. Epizódy bez `video` alebo s nečíselným kľúčom sa preskočia. */
-    fun fetchEpisodes(channel: Channel, limit: Int): List<Episode> {
+    /** Formát "state" = state.json fabriky (kľúč `episodes`). Nový formát = nová vetva v [fetchEpisodes] a tu. */
+    const val FORMAT_STATE = "state"
+
+    fun isSupported(channel: Channel): Boolean = channel.format == FORMAT_STATE
+
+    /** Najnovšie epizódy (podľa čísla) s videom; formát kanála určuje parser. */
+    fun fetchEpisodes(channel: Channel, limit: Int): List<Episode> = when (channel.format) {
+        FORMAT_STATE -> fetchStateEpisodes(channel, limit)
+        else -> throw IOException("Nepodporovaný formát: ${channel.format}")
+    }
+
+    /** Epizódy bez `video` alebo s nečíselným kľúčom sa preskočia. */
+    private fun fetchStateEpisodes(channel: Channel, limit: Int): List<Episode> {
         val body = httpGet(channel.stateUrl)
         val episodes = JSONObject(body).optJSONObject("episodes") ?: return emptyList()
         val list = ArrayList<Episode>()
@@ -70,7 +90,7 @@ object Repo {
             conn.useCaches = false
             conn.instanceFollowRedirects = true
             conn.setRequestProperty("Cache-Control", "no-cache")
-            conn.setRequestProperty("User-Agent", "TikTokNahravac/0.1")
+            conn.setRequestProperty("User-Agent", "TikTokNahravac/0.2")
             val code = conn.responseCode
             if (code != HttpURLConnection.HTTP_OK) throw IOException("HTTP $code")
             return conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }

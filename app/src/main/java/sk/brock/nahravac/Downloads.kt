@@ -1,8 +1,9 @@
 package sk.brock.nahravac
 
-import android.app.DownloadManager
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -10,101 +11,152 @@ import android.provider.MediaStore
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import java.io.File
+import java.io.IOException
+import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
-/** Sťahovanie videí cez DownloadManager do verejného Movies/TikTokNahravac/ a získanie Uri na zdieľanie. */
+/**
+ * Sťahovanie videí do galérie (Movies/TikTokNahravac/), ktoré si robí appka sama (bez DownloadManagera).
+ * Čerstvo stiahnuté video je v galérii NAJNOVŠIE, takže naučený krok "vyber prvé video" vyberie správne.
+ */
 object Downloads {
     const val SUBDIR = "TikTokNahravac"
-    const val NONE = -1
+    private const val RELATIVE_DIR = "Movies/$SUBDIR/"
 
-    /** Spustí sťahovanie; predchádzajúce sťahovanie tej istej epizódy (ak je) sa zruší aj so súborom. */
-    @Suppress("DEPRECATION")
-    fun enqueue(ctx: Context, ep: Episode): Long {
-        val dm = ctx.getSystemService(DownloadManager::class.java)
-        val oldId = Store.getDownloadId(ctx, ep.key)
-        if (oldId > 0) {
-            try {
-                dm.remove(oldId)
-            } catch (e: Exception) {
-            }
-        }
-        val request = DownloadManager.Request(Uri.parse(ep.videoUrl))
-            .setTitle(ep.title)
-            .setDescription(ep.channel.name)
-            .setMimeType("video/mp4")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_MOVIES, "$SUBDIR/${ep.fileName}")
-        if (Build.VERSION.SDK_INT < 29) request.allowScanningByMediaScanner()
-        val id = dm.enqueue(request)
-        Store.setDownloadId(ctx, ep.key, id)
-        return id
+    /** Stiahne video epizódy do galérie a zapamätá si jeho Uri. Blokuje - volať mimo hlavného vlákna. */
+    fun fetchToGallery(ctx: Context, ep: Episode): Uri {
+        val uri = if (Build.VERSION.SDK_INT >= 29) fetchViaMediaStore(ctx, ep) else fetchViaFile(ctx, ep)
+        Store.setVideoUri(ctx, ep.key, uri.toString())
+        return uri
     }
 
-    /** DownloadManager.STATUS_* alebo NONE, ak sťahovanie neexistuje. */
-    fun status(ctx: Context, id: Long): Int {
-        if (id <= 0) return NONE
-        val dm = ctx.getSystemService(DownloadManager::class.java)
-        dm.query(DownloadManager.Query().setFilterById(id))?.use { c ->
-            if (c.moveToFirst()) return c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-        }
-        return NONE
-    }
-
-    private fun localPath(ctx: Context, id: Long): String? {
-        val dm = ctx.getSystemService(DownloadManager::class.java)
-        dm.query(DownloadManager.Query().setFilterById(id))?.use { c ->
-            if (c.moveToFirst()) {
-                val s = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI)) ?: return null
-                return Uri.parse(s).path
-            }
-        }
-        return null
-    }
-
-    /**
-     * Uri stiahnutého videa vhodné na zdieľanie s inou aplikáciou (s FLAG_GRANT_READ_URI_PERMISSION).
-     * Poradie: MediaStore (Android 10+) -> FileProvider nad súborom -> Uri z DownloadManagera.
-     */
-    @Suppress("DEPRECATION")
-    fun resolveShareUri(ctx: Context, ep: Episode, id: Long): Uri? {
-        val path = localPath(ctx, id)
-        val name = path?.let { File(it).name } ?: ep.fileName
-
-        if (Build.VERSION.SDK_INT >= 29) {
-            mediaStoreUri(ctx, name)?.let { return it }
-        }
-
-        val file = if (path != null) {
-            File(path)
-        } else {
-            File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "$SUBDIR/$name")
-        }
-        if (file.isFile && file.canRead()) {
-            try {
-                return FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
-            } catch (e: IllegalArgumentException) {
-                // súbor mimo ciest z file_paths.xml -> skúsime posledný spôsob
-            }
-        }
-
+    /** Uri videa stiahnutého appkou, ak ešte existuje a dá sa otvoriť; inak null. */
+    fun savedUri(ctx: Context, ep: Episode): Uri? {
+        val text = Store.getVideoUri(ctx, ep.key) ?: return null
+        val uri = Uri.parse(text)
         return try {
-            ctx.getSystemService(DownloadManager::class.java).getUriForDownloadedFile(id)
+            val afd = ctx.contentResolver.openAssetFileDescriptor(uri, "r")
+            if (afd == null) {
+                null
+            } else {
+                afd.close()
+                uri
+            }
         } catch (e: Exception) {
             null
         }
     }
 
+    // ------------------------------------------------------------------
+    // Android 10+ : MediaStore
+    // ------------------------------------------------------------------
+
     @RequiresApi(29)
-    private fun mediaStoreUri(ctx: Context, displayName: String): Uri? {
-        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        ctx.contentResolver.query(
-            collection,
-            arrayOf(MediaStore.MediaColumns._ID),
-            "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",
-            arrayOf(displayName, "Movies/$SUBDIR/%"),
-            "${MediaStore.MediaColumns.DATE_ADDED} DESC",
-        )?.use { c ->
-            if (c.moveToFirst()) return ContentUris.withAppendedId(collection, c.getLong(0))
+    private fun fetchViaMediaStore(ctx: Context, ep: Episode): Uri {
+        val resolver = ctx.contentResolver
+        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+        // Predchádzajúci záznam s rovnakým názvom (ak je od nás) zmažeme, nech v galérii nie sú duplikáty.
+        try {
+            resolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",
+                arrayOf(ep.fileName, "$RELATIVE_DIR%"),
+                null,
+            )?.use { c ->
+                val ids = ArrayList<Long>()
+                while (c.moveToNext()) ids.add(c.getLong(0))
+                for (id in ids) {
+                    try {
+                        resolver.delete(ContentUris.withAppendedId(collection, id), null, null)
+                    } catch (e: Exception) {
+                        // cudzí / už nezmazateľný záznam - nevadí, nový dostane iný názov
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // mazanie starého záznamu je len upratovanie
         }
-        return null
+
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, ep.fileName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, RELATIVE_DIR)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+            put(MediaStore.MediaColumns.DATE_TAKEN, System.currentTimeMillis())
+        }
+        val uri = resolver.insert(collection, values) ?: throw IOException("MediaStore nevytvoril záznam")
+        try {
+            val out = resolver.openOutputStream(uri) ?: throw IOException("Nedá sa zapisovať do galérie")
+            out.use { httpCopy(ep.videoUrl, it) }
+
+            val done = ContentValues().apply {
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+                put(MediaStore.MediaColumns.DATE_TAKEN, System.currentTimeMillis())
+            }
+            resolver.update(uri, done, null, null)
+            // Skener po dokončení môže prepísať DATE_TAKEN časom z metadát mp4 -> nastavíme ho ešte raz.
+            try {
+                val taken = ContentValues().apply { put(MediaStore.MediaColumns.DATE_TAKEN, System.currentTimeMillis()) }
+                resolver.update(uri, taken, null, null)
+            } catch (e: Exception) {
+                // len kozmetika zoradenia v galérii
+            }
+        } catch (e: Exception) {
+            try {
+                resolver.delete(uri, null, null)
+            } catch (e2: Exception) {
+            }
+            throw e
+        }
+        return uri
+    }
+
+    // ------------------------------------------------------------------
+    // Android 8-9 : súbor v Movies/TikTokNahravac/ + FileProvider
+    // ------------------------------------------------------------------
+
+    @Suppress("DEPRECATION")
+    private fun fetchViaFile(ctx: Context, ep: Episode): Uri {
+        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), SUBDIR)
+        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Nepodarilo sa vytvoriť priečinok ${dir.absolutePath}")
+        val file = File(dir, ep.fileName)
+        val part = File(dir, ep.fileName + ".part")
+        try {
+            part.outputStream().use { httpCopy(ep.videoUrl, it) }
+            if (file.exists() && !file.delete()) throw IOException("Nedá sa prepísať ${file.name}")
+            if (!part.renameTo(file)) throw IOException("Nedá sa premenovať ${part.name}")
+        } catch (e: Exception) {
+            part.delete()
+            throw e
+        }
+        MediaScannerConnection.scanFile(ctx, arrayOf(file.absolutePath), arrayOf("video/mp4"), null)
+        return FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+    }
+
+    // ------------------------------------------------------------------
+    // HTTP
+    // ------------------------------------------------------------------
+
+    /** Prenesie telo odpovede do [out]; presmerovania sleduje, pri neúplnom prenose hodí výnimku. */
+    private fun httpCopy(url: String, out: OutputStream) {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 60_000
+            conn.useCaches = false
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "TikTokNahravac/0.2")
+            val code = conn.responseCode
+            if (code != HttpURLConnection.HTTP_OK) throw IOException("HTTP $code")
+            val expected = conn.contentLengthLong
+            val copied = conn.inputStream.use { it.copyTo(out, 64 * 1024) }
+            out.flush()
+            if (expected > 0 && copied != expected) throw IOException("Neúplné sťahovanie ($copied z $expected B)")
+        } finally {
+            conn.disconnect()
+        }
     }
 }

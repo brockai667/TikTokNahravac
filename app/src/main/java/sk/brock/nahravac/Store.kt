@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import java.io.File
 
-/** Malé úložisko v SharedPreferences: hotovo, ID sťahovania, požiadavka na výpis stromu. */
+/** Malé úložisko v SharedPreferences: hotovo, Uri stiahnutého videa, potvrdenie pred uverejnením, požiadavka na výpis stromu. */
 object Store {
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences("nahravac", Context.MODE_PRIVATE)
@@ -15,10 +15,18 @@ object Store {
         prefs(ctx).edit().putBoolean("done_$key", done).apply()
     }
 
-    fun getDownloadId(ctx: Context, key: String): Long = prefs(ctx).getLong("dl_$key", 0L)
+    /** Uri videa, ktoré appka sama uložila do galérie (text), alebo null. */
+    fun getVideoUri(ctx: Context, key: String): String? = prefs(ctx).getString("uri_$key", null)
 
-    fun setDownloadId(ctx: Context, key: String, id: Long) {
-        prefs(ctx).edit().putLong("dl_$key", id).apply()
+    fun setVideoUri(ctx: Context, key: String, uri: String) {
+        prefs(ctx).edit().putString("uri_$key", uri).apply()
+    }
+
+    /** Pred stlačením "Uverejniť" sa pýtať na potvrdenie (predvolene áno). */
+    fun confirmBeforePost(ctx: Context): Boolean = prefs(ctx).getBoolean("confirm_before_post", true)
+
+    fun setConfirmBeforePost(ctx: Context, value: Boolean) {
+        prefs(ctx).edit().putBoolean("confirm_before_post", value).apply()
     }
 
     /** Čas (ms), kedy používateľ požiadal o výpis stromu obrazovky; 0 = žiadna požiadavka. */

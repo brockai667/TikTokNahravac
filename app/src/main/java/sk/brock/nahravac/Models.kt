@@ -8,10 +8,18 @@ data class Channel(
     val name: String,
     val tiktok: String,
     val stateUrl: String,
+    /** Text, ktorý TikTok ukazuje v prepínači účtov (ak sa líši od [tiktok]). */
+    val account: String? = null,
+    /** Formát stavu fabriky; "state" = state.json (pozri [Repo.fetchEpisodes]). */
+    val format: String = Repo.FORMAT_STATE,
 ) {
     /** Krátky ASCII identifikátor kanála (do názvov súborov a kľúčov). */
     val slug: String
         get() = name.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]+"), "").ifEmpty { "kanal" }
+
+    /** Normalizovaný názov účtu na hľadanie v prepínači účtov TikToku (malé písmená, bez "@"). */
+    val accountKey: String
+        get() = (account ?: tiktok).lowercase(Locale.ROOT).trim().removePrefix("@")
 }
 
 /** Jedna epizóda zo state.json (len také, ktoré majú video). */
@@ -24,7 +32,7 @@ data class Episode(
     val videoUrl: String,
     val due: String?,
 ) {
-    /** Kľúč pre SharedPreferences (hotovo, ID sťahovania). */
+    /** Kľúč pre SharedPreferences (hotovo, Uri stiahnutého videa). */
     val key: String get() = "${channel.slug}#$number"
 
     /** Názov súboru v Movies/TikTokNahravac/. */
