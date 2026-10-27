@@ -21,12 +21,9 @@ import java.util.Locale
 /**
  * Služba dostupnosti (predvolene VYPNUTÁ; zapína ju používateľ v systémových nastaveniach).
  *
- * V1: iba kalibrácia. Keď appka nastaví príznak "dump" (tlačidlo "Nahrať strom obrazovky")
- * a TikTok je [DUMP_DELAY_MS] v popredí, zapíše strom uzlov aktívneho okna do súboru
- * (Android/data/sk.brock.nahravac/files/dumps/) a ukáže toast + notifikáciu s cestou.
- *
- * Nič sa nekliká. Nižšie sú pripravené TODO háčiky (pasteCaption, tapPost, switchAccount, tapNext),
- * ktoré NIE SÚ k ničomu pripojené - doladia sa po kalibrácii na reálnom telefóne.
+ * V2: appka sa "naučí postup" - [Recorder] zaznamená kliky, ktoré používateľ ručne urobí pri jednom nahraní
+ * v TikToku, a [Replayer] ich potom prehrá pre ďalšie videá. Oboje beží IBA keď to používateľ spustí v appke.
+ * Navyše ostala skrytá ladiaca funkcia: výpis stromu obrazovky TikToku do súboru (dlhé podržanie hlavičky v appke).
  */
 class TikTokAccessibilityService : AccessibilityService() {
 
@@ -47,43 +44,82 @@ class TikTokAccessibilityService : AccessibilityService() {
         private const val MAX_NODES = 5_000
         private const val MAX_DEPTH = 60
         private const val NOTIF_CHANNEL = "kalibracia"
-
-        // TODO(kalibrácia): doplniť presné texty/contentDescription podľa výpisu z reálneho telefónu.
-        val LABELS_POST = listOf("Uverejniť", "Zverejniť", "Post")
-        val LABELS_NEXT = listOf("Ďalej", "Next")
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private var tiktokSince = 0L
     private val pollRunnable = Runnable { tick() }
 
+    private var overlay: Overlay? = null
+    private var recorder: Recorder? = null
+    private var replayer: Replayer? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        val o = Overlay(this)
+        overlay = o
+        replayer = Replayer(this, o)
         if (Store.dumpRequestedAt(this) > 0L) startDumpWatch()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // V1 nepotrebuje udalosti: aktívne okno sa zisťuje pollovaním v tick().
-        // TODO(kalibrácia): tu neskôr reagovať na zmeny obrazovky TikToku pri automatickom nahrávaní.
+        if (event == null) return
+        recorder?.onEvent(event)
     }
 
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {
-        instance = null
-        handler.removeCallbacks(pollRunnable)
+        shutDown()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        instance = null
-        handler.removeCallbacks(pollRunnable)
+        shutDown()
         super.onDestroy()
     }
 
+    private fun shutDown() {
+        instance = null
+        handler.removeCallbacks(pollRunnable)
+        recorder?.abort()
+        recorder = null
+        replayer?.stop()
+        replayer = null
+        overlay?.destroy()
+        overlay = null
+    }
+
     // ------------------------------------------------------------------
-    // Výpis stromu obrazovky (kalibrácia)
+    // Učenie a automatické nahrávanie (volá appka)
+    // ------------------------------------------------------------------
+
+    /** Niečo práve beží (učenie alebo prehrávanie). */
+    fun isBusy(): Boolean = recorder != null || replayer?.running == true
+
+    /**
+     * Spustí učenie postupu na epizóde [ep] s popisom [caption]: otvorí TikTok a nahráva kliky.
+     * False, ak je služba zaneprázdnená alebo sa TikTok nepodarilo otvoriť.
+     */
+    fun startRecording(ep: Episode, caption: String): Boolean {
+        val o = overlay ?: return false
+        if (isBusy()) return false
+        val r = Recorder(this, o, ep, caption) { recorder = null }
+        if (!r.start()) return false
+        recorder = r
+        return true
+    }
+
+    /** Stiahne a nahrá všetky položky po jednej; False, ak je služba zaneprázdnená. */
+    fun runAll(items: List<Replayer.Item>, confirmBeforePost: Boolean): Boolean {
+        if (isBusy()) return false
+        val r = replayer ?: return false
+        return r.runAll(items, confirmBeforePost)
+    }
+
+    // ------------------------------------------------------------------
+    // Výpis stromu obrazovky (ladenie)
     // ------------------------------------------------------------------
 
     /** Zavolá appka po nastavení príznaku (alebo sa zavolá po pripojení služby). */
@@ -196,77 +232,5 @@ class TikTokAccessibilityService : AccessibilityService() {
 
     private fun toast(msg: String) {
         Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show()
-    }
-
-    // ------------------------------------------------------------------
-    // TODO háčiky pre budúce automatické nahrávanie - NIE SÚ ZAPOJENÉ
-    // (nič ich nevolá; doladiť po kalibrácii podľa výpisu stromu z telefónu)
-    // ------------------------------------------------------------------
-
-    /** TODO: vložiť popis do poľa popisu (predpokladá, že text je v schránke). Zatiaľ berie prvé editovateľné pole. */
-    fun pasteCaption(): Boolean {
-        val root = rootInActiveWindow ?: return false
-        // TODO(kalibrácia): nájsť pole popisu presne (viewId / hint), nie len "prvé editovateľné".
-        val field = findFirst(root) { it.isEditable } ?: return false
-        field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-        return field.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-    }
-
-    /** TODO: stlačiť "Uverejniť" / "Post". */
-    fun tapPost(): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val node = findNodeByLabel(root, LABELS_POST) ?: return false
-        return clickNode(node)
-    }
-
-    /** TODO: stlačiť "Ďalej" / "Next". */
-    fun tapNext(): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val node = findNodeByLabel(root, LABELS_NEXT) ?: return false
-        return clickNode(node)
-    }
-
-    /** TODO: prepnúť účet na [handle] (napr. "@plainsight.667"). Zatiaľ nič nerobí. */
-    @Suppress("UNUSED_PARAMETER")
-    fun switchAccount(handle: String): Boolean {
-        // TODO(kalibrácia): profil -> rozbaľovací zoznam účtov -> uzol s textom == handle -> clickNode().
-        // Postup a presné uzly sa zistia z výpisov stromu obrazovky.
-        return false
-    }
-
-    // --- pomocné vyhľadávanie uzlov (text + contentDescription, SK aj EN) ---
-
-    /**
-     * Prvý uzol, ktorého text alebo contentDescription sa zhoduje s niektorým z [labels]
-     * (bez ohľadu na veľkosť písmen). [exact] = true: celé porovnanie, false: "obsahuje".
-     */
-    fun findNodeByLabel(root: AccessibilityNodeInfo, labels: List<String>, exact: Boolean = true): AccessibilityNodeInfo? {
-        val wanted = labels.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
-        fun matches(s: CharSequence?): Boolean {
-            val v = s?.toString()?.trim()?.lowercase() ?: return false
-            if (v.isEmpty()) return false
-            return wanted.any { if (exact) v == it else v.contains(it) }
-        }
-        return findFirst(root) { matches(it.text) || matches(it.contentDescription) }
-    }
-
-    /** Prehľadá strom do hĺbky a vráti prvý uzol spĺňajúci [predicate]. */
-    fun findFirst(node: AccessibilityNodeInfo, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
-        if (predicate(node)) return node
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            findFirst(child, predicate)?.let { return it }
-        }
-        return null
-    }
-
-    /** Klikne na uzol; ak sám nie je klikateľný, vyšplhá po rodičoch k prvému klikateľnému. */
-    fun clickNode(node: AccessibilityNodeInfo): Boolean {
-        var current: AccessibilityNodeInfo? = node
-        while (current != null) {
-            if (current.isClickable) return current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            current = current.parent
-        }
-        return false
     }
 }
