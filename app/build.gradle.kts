@@ -13,10 +13,24 @@ android {
         targetSdk = 34
         // V CI sa versionCode zvysuje podla cisla behu, aby sa APK dalo instalovat ako aktualizacia.
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
-        versionName = "0.1.0"
+        versionName = "0.2.0"
+    }
+
+    // Pevny podpisovy kluc (verejny "debug" kluc, nie tajomstvo), aby sa nove verzie instalovali ako aktualizacia.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            storeType = "pkcs12"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
         }

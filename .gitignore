@@ -17,3 +17,5 @@ captures/
 *.aab
 *.jks
 *.keystore
+# Vynimka: verejny "debug" kluc (heslo "android"), ktory zabezpecuje plynule aktualizacie APK.
+!app/debug.keystore
