@@ -9,7 +9,7 @@ Malá Android appka (Kotlin, obyčajné Views), ktorá nahráva videá z faceles
 - **Stiahnuť + text** – stiahne mp4 do galérie (`Movies/TikTokNahravac/`) a skopíruje popis do schránky. Sťahovanie si robí appka sama (bez DownloadManagera), takže čerstvé video je v galérii vždy **najnovšie**.
 - **Naučiť postup na tomto diele** – spustí učenie (pozri nižšie).
 - **Nahrať automaticky** – pre jeden diel prehrá naučený postup. Dlhé podržanie tlačidla = naučiť postup znova.
-- **Nahrať všetko (nové diely)** – pre každý kanál nahrá najnovší diel, ktorý ešte nie je označený ako hotový.
+- **▶ Nahrať všetko na TikTok** – jediné veľké tlačidlo úplne hore (pozri nižšie).
 - **Otvoriť v TikToku** – ručné zdieľanie videa (ACTION_SEND). Pri chybe ukáže presný dôvod (trieda výnimky + správa).
 - **Označiť hotovo** – značka v telefóne (dá sa zrušiť). Automatické nahranie ju nastaví samo.
 
@@ -41,10 +41,20 @@ Zaznamenané kroky uvidíš cez **Zobraziť postup**, zmažeš ich cez **Zmazať
 
 ## Ako spustiť automatické nahrávanie
 
-- **Nahrať všetko (nové diely)** alebo **Nahrať automaticky** pri diele. Appka diel čerstvo stiahne, skopíruje popis, otvorí TikTok a prehrá kroky. Vľavo je karta „▶ kanál: krok N/M“ s tlačidlom **Stop**, ktoré okamžite zastaví celú frontu.
+Stačí jedno tlačidlo **▶ Nahrať všetko na TikTok** (úplne hore, vždy aktívne). Po ťuknutí appka:
+
+1. skontroluje službu dostupnosti (ak je vypnutá, otvorí jej nastavenia) a TikTok,
+2. obnoví zoznamy všetkých kanálov (tlačidlo medzitým ukazuje „Načítavam…“),
+3. ak ešte nie je naučený postup, ponúkne naučenie na prvom novom diele (stačí to urobiť raz), inak
+4. pre každý kanál stiahne najnovší diel, ktorý ešte nie je označený ako hotový, otvorí TikTok, prepne správny účet a prehrá kroky.
+
+Vľavo je karta „▶ kanál: krok N/M“ s tlačidlom **Stop**, ktoré okamžite zastaví celú frontu. Pri jednom diele sa dá použiť aj **Nahrať automaticky** pri diele.
+
 - Ak sa krok nenájde, karta ponúkne **Znova** / **Preskočiť** / **Stop**.
-- **Potvrdiť pred uverejnením** (predvolene zapnuté): pred posledným krokom karta ukáže „Skontroluj účet, video a popis“ s tlačidlami **Uverejniť** / **Zrušiť**. Potvrdenie sa vyžaduje aj vždy, keď bol niektorý krok preskočený. Vypnúť sa dá zaškrtávacím políčkom, ale odporúča sa to až po tom, čo postup niekoľkokrát prešiel bez problémov.
-- Po uverejnení appka počká 6 s, označí diel ako hotový a pokračuje ďalším.
+- **Potvrdiť pred uverejnením** je predvolene **vypnuté** (nepovinná poistka, dá sa zaškrtnúť). Potvrdenie („Skontroluj účet, video a popis“, **Uverejniť** / **Zrušiť**) sa vyžaduje **vždy**, keď bol niektorý krok preskočený alebo keď sa popis nenašiel v žiadnom editovateľnom poli na obrazovke tesne pred Uverejniť.
+- **Vyskakovacie okná:** ak sa krok dlhšie ako 4 s nenájde, appka každé ~3 s skúsi zavrieť okno TikToku tlačidlom s presným textom Not now, Nie teraz, Teraz nie, Later, Neskôr, Skip, Preskočiť, Got it, Rozumiem, Close, Zavrieť alebo Dismiss. Nič iné (OK, Zrušiť, Povoliť a pod.) sa samo nestláča.
+- **Hľadanie prvkov bez ID:** ak kliknutý prvok nemá viewId a nenašiel sa podľa textu, vyberie sa viditeľný prvok rovnakej triedy najbližšie k zaznamenanej polohe (do 6 % dlhšej strany obrazovky). Text s menom niektorého z našich účtov (hlavička profilu) sa pri učení neukladá, lebo ukazuje práve aktuálny účet.
+- Po uverejnení appka počká 20 s (nech sa nahrávanie v TikToku rozbehne), označí diel ako hotový a pokračuje ďalším kanálom.
 
 ## Formát channels.json
 
@@ -68,8 +78,8 @@ Zaznamenané kroky uvidíš cez **Zobraziť postup**, zmažeš ich cez **Zmazať
 
 - Aktualizácia TikToku môže zmeniť tlačidlá (ich ID aj texty). Keď postup prestane fungovať, **nauč ho znova**.
 - Nastavenie hlasitosti zvuku (posuvník) je „best effort“: ak ho TikTok nepodporuje cez službu dostupnosti, krok sa preskočí s upozornením na karte a hlasitosť nastav rukou.
-- Náhodné okná TikToku (reklamy, upozornenia, „Skúsiť novú funkciu“) môžu prekryť očakávané tlačidlo. Zavri ich rukou a na karte stlač **Znova**.
-- Video sa vyberá ako prvé v galérii (je najnovšie vďaka vlastnému sťahovaniu). Ak niektorý telefón radí galériu inak, môže sa vybrať iné video, preto ponechaj potvrdenie pred uverejnením zapnuté.
+- Náhodné okná TikToku (reklamy, upozornenia, „Skúsiť novú funkciu“) môžu prekryť očakávané tlačidlo. Appka zatvára len okná s tlačidlami zo zoznamu vyššie; iné zavri rukou a na karte stlač **Znova**.
+- Video sa vyberá ako prvé v galérii (je najnovšie vďaka vlastnému sťahovaniu). Ak niektorý telefón radí galériu inak, môže sa vybrať iné video; v takom prípade zapni potvrdenie pred uverejnením.
 - Na Androide 8–9 appka pri prvom sťahovaní vypýta povolenie na úložisko.
 
 ## Skrytá ladiaca funkcia
