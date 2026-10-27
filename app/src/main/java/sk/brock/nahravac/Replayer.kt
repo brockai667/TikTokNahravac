@@ -37,7 +37,18 @@ class Replayer(
         private const val POLL_MS = 300L
         private const val FIND_TIMEOUT_MS = 15_000L
         private const val AFTER_THUMB_TIMEOUT_MS = 30_000L
-        private const val AFTER_POST_WAIT_MS = 6_000L
+        // Nech sa nahrávanie v TikToku rozbehne, kým ďalší kanál TikTok znova spustí.
+        private const val AFTER_POST_WAIT_MS = 20_000L
+
+        /** Po koľkých ms bez nájdenia uzla sa začnú zatvárať vyskakovacie okná a ako často. */
+        private const val DISMISS_AFTER_MS = 4_000L
+        private const val DISMISS_EVERY_MS = 3_000L
+
+        /** Tlačidlá, ktoré sa smú samé stlačiť pri zatváraní okna (nikdy OK, Zrušiť, Povoliť, Zahodiť a pod.). */
+        private val SAFE_DISMISS = listOf(
+            "Not now", "Nie teraz", "Teraz nie", "Later", "Neskôr", "Skip", "Preskočiť",
+            "Got it", "Rozumiem", "Close", "Zavrieť", "Dismiss",
+        )
     }
 
     @Volatile
@@ -154,14 +165,23 @@ class Replayer(
             sleepStoppable(minOf(step.gapMs, MAX_GAP_MS))
             if (stopped) return false
 
-            if (step.type == StepType.POST && (confirmBeforePost || skippedAny)) {
-                val d = ask(
-                    "Skontroluj účet, video a popis ($name)",
-                    "Uverejniť" to Decision.CONFIRM,
-                    "Zrušiť" to Decision.STOP,
-                )
-                if (d != Decision.CONFIRM) return false
-                showProgress(name, n, total)
+            if (step.type == StepType.POST) {
+                // Pýtame sa, ak to chce používateľ, ak sa niečo preskočilo alebo ak popis nie je na obrazovke.
+                val question = when {
+                    confirmBeforePost || skippedAny -> "Skontroluj účet, video a popis ($name)"
+                    !captionOnScreen(step.sel, caption) ->
+                        "Popis sa nenašiel na obrazovke – skontroluj účet, video a popis ($name)"
+                    else -> null
+                }
+                if (question != null) {
+                    val d = ask(
+                        question,
+                        "Uverejniť" to Decision.CONFIRM,
+                        "Zrušiť" to Decision.STOP,
+                    )
+                    if (d != Decision.CONFIRM) return false
+                    showProgress(name, n, total)
+                }
             }
 
             var result = doStep(step, ep, caption, timeout)
@@ -228,7 +248,9 @@ class Replayer(
 
     /** Opakovane hľadá uzol kroku (každých 300 ms), kým ho nenájde alebo nevyprší čas / Stop. */
     private fun awaitNode(step: Step, channel: Channel, timeoutMs: Long): AccessibilityNodeInfo? {
-        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        val start = SystemClock.uptimeMillis()
+        val deadline = start + timeoutMs
+        var lastDismissAt = 0L
         while (!stopped) {
             val node = try {
                 findNow(step, channel)
@@ -236,7 +258,17 @@ class Replayer(
                 null
             }
             if (node != null) return node
-            if (SystemClock.uptimeMillis() >= deadline) return null
+            val now = SystemClock.uptimeMillis()
+            if (now >= deadline) return null
+            // Uzol sa dlho nenachádza -> možno ho zakrýva vyskakovacie okno TikToku, skúsime ho bezpečne zavrieť.
+            if (now - start > DISMISS_AFTER_MS && now - lastDismissAt >= DISMISS_EVERY_MS) {
+                lastDismissAt = now
+                try {
+                    dismissPopup(step.sel)
+                } catch (e: Exception) {
+                    // zatváranie okna je len pomoc, krok sa hľadá ďalej
+                }
+            }
             sleepStoppable(POLL_MS)
         }
         return null
@@ -249,7 +281,34 @@ class Replayer(
         return when (step.type) {
             StepType.ACCOUNT -> Nodes.findAccount(nodes, channel.accountKey)
             StepType.POST -> Nodes.find(nodes, step.sel) ?: Nodes.findByLabels(nodes, Recorder.POST_LABELS)
-            else -> Nodes.find(nodes, step.sel)
+            else -> {
+                val m = service.resources.displayMetrics
+                Nodes.find(nodes, step.sel, m.widthPixels, m.heightPixels)
+            }
+        }
+    }
+
+    /**
+     * Zatvorí vyskakovacie okno TikToku: klikne na viditeľný uzol, ktorého text/popis je presne z [SAFE_DISMISS].
+     * Hľadá sa len v oknách TikToku (nikdy v našej karte). True = kliklo sa.
+     */
+    private fun dismissPopup(sel: Selector): Boolean {
+        if (sel.pkg.isEmpty() || sel.pkg == service.packageName) return false
+        val roots = rootsFor(sel.pkg)
+        if (roots.isEmpty()) return false
+        val node = Nodes.findByLabels(Nodes.collect(roots), SAFE_DISMISS) ?: return false
+        return click(node, sel)
+    }
+
+    /** Je v niektorom editovateľnom poli TikToku začiatok (25 znakov) popisu? Prázdny popis = vždy true. */
+    private fun captionOnScreen(sel: Selector, caption: String): Boolean {
+        val prefix = caption.trim().take(25)
+        if (prefix.isEmpty()) return true
+        return try {
+            val roots = rootsFor(sel.pkg)
+            Nodes.collect(roots).any { it.isEditable && it.text?.toString()?.contains(prefix) == true }
+        } catch (e: Exception) {
+            false
         }
     }
 

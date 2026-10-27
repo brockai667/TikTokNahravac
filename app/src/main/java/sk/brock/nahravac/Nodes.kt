@@ -123,9 +123,11 @@ object Nodes {
 
     /**
      * Nájde uzol podľa selektora: (a) viewId a text/popis sa zhodujú, (b) text alebo popis sa zhoduje,
-     * (c) iba viewId -> uzol na poradí [Selector.index] (alebo prvý). Inak null.
+     * (c) iba viewId -> uzol na poradí [Selector.index] (alebo prvý), (d) len ak selektor nemá viewId:
+     * viditeľný uzol rovnakej triedy, ktorého stred je najbližšie k zaznamenanej polohe (do 6 % dlhšej strany obrazovky).
+     * (d) sa použije len keď je zadaná veľkosť obrazovky [screenW] x [screenH] (0 = preskočiť). Inak null.
      */
-    fun find(nodes: List<AccessibilityNodeInfo>, sel: Selector): AccessibilityNodeInfo? {
+    fun find(nodes: List<AccessibilityNodeInfo>, sel: Selector, screenW: Int = 0, screenH: Int = 0): AccessibilityNodeInfo? {
         val wantText = sel.text
         val wantDesc = sel.desc
         val hasLabel = wantText != null || wantDesc != null
@@ -140,12 +142,35 @@ object Nodes {
             nodes.firstOrNull { it.isVisibleToUser && labelEquals(it) }?.let { return it }
         }
 
-        val id = sel.viewId ?: return null
+        val id = sel.viewId ?: return findByPosition(nodes, sel, screenW, screenH)
         val sameId = nodes.filter { it.viewIdResourceName == id }
         if (sameId.isEmpty()) return null
         val sameClass = sameId.filter { it.className?.toString() == sel.cls }
         val pool = if (sameClass.isNotEmpty()) sameClass else sameId
         return pool.getOrNull(sel.index) ?: pool.first()
+    }
+
+    /** Záloha (d): viditeľný uzol triedy [Selector.cls] so stredom najbližšie k zaznamenanej polohe, najviac 6 % dlhšej strany. */
+    private fun findByPosition(nodes: List<AccessibilityNodeInfo>, sel: Selector, screenW: Int, screenH: Int): AccessibilityNodeInfo? {
+        if (screenW <= 0 || screenH <= 0 || sel.cls == null) return null
+        val targetX = sel.relX * screenW
+        val targetY = sel.relY * screenH
+        val maxDist = 0.06f * maxOf(screenW, screenH)
+        val r = Rect()
+        var best: AccessibilityNodeInfo? = null
+        var bestDist = Float.MAX_VALUE
+        for (n in nodes) {
+            if (!n.isVisibleToUser || n.className?.toString() != sel.cls) continue
+            n.getBoundsInScreen(r)
+            val dx = r.exactCenterX() - targetX
+            val dy = r.exactCenterY() - targetY
+            val dist = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            if (dist < bestDist) {
+                bestDist = dist
+                best = n
+            }
+        }
+        return if (best != null && bestDist <= maxDist) best else null
     }
 
     /** Uzol účtu: viditeľný uzol, ktorého vlastný text/popis obsahuje [accountKey]; potom klikateľný kontajner so štítkom. */
