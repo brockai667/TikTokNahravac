@@ -3,5 +3,27 @@
     "name": "Plain Sight",
     "tiktok": "@plainsight.667",
     "stateUrl": "https://raw.githubusercontent.com/brockai667/HistoryUntold/main/state.json"
+  },
+  {
+    "name": "Suddenly Rich",
+    "tiktok": "@wealth_mindset34",
+    "stateUrl": "https://raw.githubusercontent.com/brockai667/WealthFactory/main/vote/tiktok.json"
+  },
+  {
+    "name": "ColdCaseDaily",
+    "tiktok": "@coldcase_daily",
+    "format": "drop",
+    "dropKey": "coldcasedaily667",
+    "stateUrl": "https://raw.githubusercontent.com/brockai667/tiktok-drop/main/tiktok_drop.json",
+    "suffix": "Music: Kevin MacLeod (incompetech.com) · Licensed under CC BY 4.0"
+  },
+  {
+    "name": "BrainHeist",
+    "tiktok": "",
+    "account": "brainheist",
+    "format": "drop",
+    "dropKey": "MotivationFactory",
+    "stateUrl": "https://raw.githubusercontent.com/brockai667/tiktok-drop/main/tiktok_drop.json",
+    "suffix": "Music: Kevin MacLeod (incompetech.com) · Licensed under CC BY 4.0"
   }
 ]

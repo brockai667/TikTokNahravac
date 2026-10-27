@@ -38,6 +38,8 @@ object Repo {
                     stateUrl = url,
                     account = o.str("account"),
                     format = (o.str("format") ?: FORMAT_STATE).lowercase(Locale.ROOT),
+                    dropKey = o.str("dropKey"),
+                    suffix = o.str("suffix"),
                 )
             )
         }
@@ -47,12 +49,63 @@ object Repo {
     /** Formát "state" = state.json fabriky (kľúč `episodes`). Nový formát = nová vetva v [fetchEpisodes] a tu. */
     const val FORMAT_STATE = "state"
 
-    fun isSupported(channel: Channel): Boolean = channel.format == FORMAT_STATE
+    /** Formát "drop" = tiktok_drop.json z repa tiktok-drop (`{repo: {cta, videos: [...]}}`). */
+    const val FORMAT_DROP = "drop"
+
+    fun isSupported(channel: Channel): Boolean =
+        channel.format == FORMAT_STATE || (channel.format == FORMAT_DROP && channel.dropKey != null)
 
     /** Najnovšie epizódy (podľa čísla) s videom; formát kanála určuje parser. */
     fun fetchEpisodes(channel: Channel, limit: Int): List<Episode> = when (channel.format) {
         FORMAT_STATE -> fetchStateEpisodes(channel, limit)
+        FORMAT_DROP -> fetchDropEpisodes(channel, limit)
         else -> throw IOException("Nepodporovaný formát: ${channel.format}")
+    }
+
+    /** Pripojí [Channel.suffix], ak ho text ešte neobsahuje. */
+    private fun withSuffix(channel: Channel, text: String): String {
+        val s = channel.suffix ?: return text
+        if (text.contains(s)) return text
+        return if (text.isEmpty()) s else "$text\n\n$s"
+    }
+
+    /**
+     * Videá jedného repa z tiktok_drop.json, najnovšie (podľa `created`) prvé.
+     * Popis = desc (alebo názov) + CTA + hashtagy + [Channel.suffix]; id = názov súboru (stabilný kľúč „hotovo“).
+     */
+    private fun fetchDropEpisodes(channel: Channel, limit: Int): List<Episode> {
+        val body = httpGet(channel.stateUrl)
+        val repo = JSONObject(body).optJSONObject(channel.dropKey ?: "") ?: return emptyList()
+        val videos = repo.optJSONArray("videos") ?: return emptyList()
+        val cta = repo.str("cta")
+        val brandTags = repo.optJSONArray("brand_hashtags")
+        val raw = ArrayList<JSONObject>()
+        for (i in 0 until videos.length()) {
+            val o = videos.optJSONObject(i) ?: continue
+            val url = o.str("url") ?: continue
+            if (!url.startsWith("http")) continue
+            raw.add(o)
+        }
+        // Stabilné triedenie: rovnaký dátum ponechá poradie z feedu.
+        val sorted = raw.sortedByDescending { it.str("created") ?: "" }
+        return sorted.take(limit).mapIndexed { i, o ->
+            val title = o.str("title") ?: o.str("file") ?: "Video"
+            val tags = (o.optJSONArray("hashtags")?.takeIf { it.length() > 0 } ?: brandTags)
+                ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).trim().ifEmpty { null } } }
+                ?.joinToString(" ")
+                ?.ifEmpty { null }
+            val head = o.str("desc") ?: title.replace('-', ' ')
+            val text = listOfNotNull(head, cta, tags, o.str("credit")).joinToString("\n\n")
+            Episode(
+                channel = channel,
+                number = sorted.size - i,
+                id = o.str("file") ?: title,
+                title = title,
+                text = withSuffix(channel, text),
+                videoUrl = o.str("url")!!,
+                due = o.str("created"),
+            )
+        }
     }
 
     /** Epizódy bez `video` alebo s nečíselným kľúčom sa preskočia. */
@@ -73,7 +126,7 @@ object Repo {
                     number = number,
                     id = o.str("id") ?: key,
                     title = o.str("title") ?: o.str("id") ?: "Epizóda $number",
-                    text = o.str("text") ?: "",
+                    text = withSuffix(channel, o.str("text") ?: ""),
                     videoUrl = video,
                     due = o.str("due"),
                 )

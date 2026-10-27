@@ -10,8 +10,12 @@ data class Channel(
     val stateUrl: String,
     /** Text, ktorý TikTok ukazuje v prepínači účtov (ak sa líši od [tiktok]). */
     val account: String? = null,
-    /** Formát stavu fabriky; "state" = state.json (pozri [Repo.fetchEpisodes]). */
+    /** Formát stavu fabriky; "state" = state.json, "drop" = tiktok_drop.json (pozri [Repo.fetchEpisodes]). */
     val format: String = Repo.FORMAT_STATE,
+    /** Pri formáte "drop": kľúč repa v tiktok_drop.json (napr. "coldcasedaily667"). */
+    val dropKey: String? = null,
+    /** Text pripojený na koniec každého popisu (napr. kredit hudby), ak v ňom ešte nie je. */
+    val suffix: String? = null,
 ) {
     /** Krátky ASCII identifikátor kanála (do názvov súborov a kľúčov). */
     val slug: String
@@ -32,8 +36,9 @@ data class Episode(
     val videoUrl: String,
     val due: String?,
 ) {
-    /** Kľúč pre SharedPreferences (hotovo, Uri stiahnutého videa). */
-    val key: String get() = "${channel.slug}#$number"
+    /** Kľúč pre SharedPreferences (hotovo, Uri stiahnutého videa). Pri "drop" podľa súboru, lebo poradie sa mení. */
+    val key: String
+        get() = if (channel.format == Repo.FORMAT_DROP) "${channel.slug}#$id" else "${channel.slug}#$number"
 
     /** Názov súboru v Movies/TikTokNahravac/. */
     val fileName: String
