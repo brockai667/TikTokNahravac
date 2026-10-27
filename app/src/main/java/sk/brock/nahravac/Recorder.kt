@@ -44,6 +44,13 @@ class Recorder(
     private var finished = false
     private val captionPrefix = caption.trim().take(25)
     private val accountKey = episode.channel.accountKey
+
+    /** Kľúče účtov všetkých kanálov: hlavička profilu ukazuje meno AKTUÁLNEHO účtu, takže podľa textu sa pri prehrávaní hľadať nesmie. */
+    private val allAccountKeys: List<String> = try {
+        Repo.loadChannels(service).map { it.accountKey }.filter { it.isNotEmpty() }
+    } catch (e: Exception) {
+        emptyList()
+    }
     private val metrics = service.resources.displayMetrics
     private val imePackages: Set<String> = try {
         service.getSystemService(InputMethodManager::class.java)
@@ -106,7 +113,9 @@ class Recorder(
 
         if (type == StepType.POST) addCaptionFromScreen(src)
 
-        val finalSel = if (type == StepType.ACCOUNT) sel.copy(text = null, desc = null) else sel
+        // Text s menom ktoréhokoľvek z našich účtov (napr. hlavička profilu) pri prehrávaní nesedí -> hľadá sa bez textu.
+        val hasAccountText = type == StepType.CLICK && norm != null && allAccountKeys.any { norm.contains(it) }
+        val finalSel = if (type == StepType.ACCOUNT || hasAccountText) sel.copy(text = null, desc = null) else sel
         steps.add(Step(type, finalSel, null, gap()))
 
         if (type == StepType.POST) {
