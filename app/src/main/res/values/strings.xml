@@ -31,10 +31,9 @@
     <string name="btn_delete">Zmazať</string>
     <string name="btn_cancel">Zrušiť</string>
     <string name="btn_close">Zavrieť</string>
-    <string name="btn_run_all">Nahrať všetko (nové diely)</string>
-    <string name="auto_hint_a11y_off">Zapni službu dostupnosti (tlačidlo vyššie), inak sa nedá nahrávať automaticky.</string>
-    <string name="auto_hint_no_macro">Najprv nauč postup na niektorom diele (tlačidlo „Naučiť postup na tomto diele“).</string>
-    <string name="auto_hint_ready">Nahrá sa najnovší diel každého kanála, ktorý ešte nie je označený ako hotový. Postup sa dá naučiť znova dlhým podržaním „Nahrať automaticky“ pri diele.</string>
+    <string name="btn_run_all">▶ Nahrať všetko na TikTok</string>
+    <string name="auto_hint">Jedno ťuknutie: stiahne nové diely všetkých kanálov a uverejní ich na správne účty. Prvýkrát sa raz naučí postup.</string>
+    <string name="toast_learn_first">Najprv raz ukáž postup – potom už stačí toto tlačidlo.</string>
     <string name="toast_no_new">Žiadne nové diely na nahratie.</string>
     <string name="toast_auto_started">Spúšťam automatické nahrávanie. Sleduj kartu na ľavom okraji.</string>
     <string name="toast_busy">Služba práve niečo robí. Zastav to tlačidlom Stop na karte.</string>

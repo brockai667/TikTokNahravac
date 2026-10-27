@@ -41,7 +41,6 @@ class MainActivity : Activity() {
     private lateinit var tvTikTok: TextView
     private lateinit var tvA11y: TextView
     private lateinit var tvMacro: TextView
-    private lateinit var tvAutoHint: TextView
     private lateinit var btnRunAll: Button
 
     private var channels: List<Channel> = emptyList()
@@ -72,14 +71,13 @@ class MainActivity : Activity() {
         tvTikTok = findViewById(R.id.tvTikTok)
         tvA11y = findViewById(R.id.tvA11y)
         tvMacro = findViewById(R.id.tvMacro)
-        tvAutoHint = findViewById(R.id.tvAutoHint)
         btnRunAll = findViewById(R.id.btnRunAll)
 
         findViewById<Button>(R.id.btnRefresh).setOnClickListener { refresh() }
         findViewById<Button>(R.id.btnA11ySettings).setOnClickListener { openAccessibilitySettings() }
         findViewById<Button>(R.id.btnShowMacro).setOnClickListener { showMacro() }
         findViewById<Button>(R.id.btnClearMacro).setOnClickListener { confirmClearMacro() }
-        btnRunAll.setOnClickListener { runNewEpisodes() }
+        btnRunAll.setOnClickListener { onRunAllClicked() }
 
         findViewById<CheckBox>(R.id.cbConfirm).apply {
             isChecked = Store.confirmBeforePost(this@MainActivity)
@@ -136,16 +134,6 @@ class MainActivity : Activity() {
             if (macroSteps.none { it.type == StepType.ACCOUNT }) text += "\n" + getString(R.string.warn_no_account_step)
             tvMacro.text = text
         }
-
-        val ready = a11yOn && macroSteps.isNotEmpty()
-        btnRunAll.isEnabled = ready
-        tvAutoHint.setText(
-            when {
-                !a11yOn -> R.string.auto_hint_a11y_off
-                macroSteps.isEmpty() -> R.string.auto_hint_no_macro
-                else -> R.string.auto_hint_ready
-            }
-        )
     }
 
     private fun showMacro() {
@@ -179,8 +167,8 @@ class MainActivity : Activity() {
             .show()
     }
 
-    /** Pre každý kanál najnovší diel, ktorý ešte nie je označený ako hotový. */
-    private fun runNewEpisodes() {
+    /** Pre každý kanál (v poradí z channels.json) najnovší diel, ktorý ešte nie je označený ako hotový. */
+    private fun newestNotDone(): List<Episode> {
         val items = ArrayList<Episode>()
         for (ch in channels) {
             val st = states[ch.name]
@@ -189,6 +177,45 @@ class MainActivity : Activity() {
                 if (!Store.isDone(this, newest.key)) items.add(newest)
             }
         }
+        return items
+    }
+
+    /**
+     * Jediné tlačidlo: skontroluje službu dostupnosti a TikTok, obnoví zoznamy všetkých kanálov a potom
+     * buď (bez naučeného postupu) ponúkne naučenie na prvom novom diele, alebo nahrá nové diely všetkých kanálov.
+     */
+    private fun onRunAllClicked() {
+        if (!isAccessibilityServiceEnabled() || TikTokAccessibilityService.instance == null) {
+            toast(getString(R.string.toast_a11y_not_enabled), long = true)
+            openAccessibilitySettings()
+            return
+        }
+        if (TikTokShare.installedPackage(this) == null) {
+            toast(getString(R.string.toast_tiktok_missing), long = true)
+            return
+        }
+        btnRunAll.isEnabled = false
+        btnRunAll.setText(R.string.loading)
+        refresh {
+            btnRunAll.isEnabled = true
+            btnRunAll.setText(R.string.btn_run_all)
+            if (Macro.load(this).isEmpty()) {
+                val first = newestNotDone().firstOrNull()
+                if (first == null) {
+                    toast(getString(R.string.toast_no_new))
+                } else {
+                    toast(getString(R.string.toast_learn_first), long = true)
+                    learnEpisode(first)
+                }
+            } else {
+                runNewEpisodes()
+            }
+        }
+    }
+
+    /** Pre každý kanál najnovší diel, ktorý ešte nie je označený ako hotový. */
+    private fun runNewEpisodes() {
+        val items = newestNotDone()
         if (items.isEmpty()) {
             toast(getString(R.string.toast_no_new))
             return
@@ -225,11 +252,18 @@ class MainActivity : Activity() {
     // Načítanie a vykreslenie
     // ------------------------------------------------------------------
 
-    private fun refresh() {
+    /** Obnoví epizódy všetkých podporovaných kanálov; [onComplete] sa zavolá na hlavnom vlákne, keď sa všetky dokončili (úspech aj chyba). */
+    private fun refresh(onComplete: (() -> Unit)? = null) {
         states.clear()
         channels.forEach { states[it.name] = ChannelState.Loading }
         render()
-        channels.filter { Repo.isSupported(it) }.forEach { ch ->
+        val supported = channels.filter { Repo.isSupported(it) }
+        if (supported.isEmpty()) {
+            if (onComplete != null) ui.post { if (!isDestroyed) onComplete() }
+            return
+        }
+        var left = supported.size // mení sa len na hlavnom vlákne
+        supported.forEach { ch ->
             executor.execute {
                 val state: ChannelState = try {
                     ChannelState.Ok(Repo.fetchEpisodes(ch, EPISODES_PER_CHANNEL))
@@ -240,6 +274,8 @@ class MainActivity : Activity() {
                     if (!isDestroyed) {
                         states[ch.name] = state
                         render()
+                        left--
+                        if (left == 0) onComplete?.invoke()
                     }
                 }
             }

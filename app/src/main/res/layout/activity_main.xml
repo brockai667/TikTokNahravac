@@ -25,6 +25,24 @@
             android:layout_height="wrap_content"
             android:textSize="14sp" />
 
+        <!-- Jedno tlačidlo: stiahne nové diely všetkých kanálov a uverejní ich -->
+        <Button
+            android:id="@+id/btnRunAll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="72dp"
+            android:text="@string/btn_run_all"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/tvAutoHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/auto_hint"
+            android:textColor="@color/status_gray"
+            android:textSize="13sp" />
+
         <Button
             android:id="@+id/btnA11ySettings"
             android:layout_width="match_parent"
@@ -70,19 +88,6 @@
                 android:layout_weight="1"
                 android:text="@string/btn_clear_macro" />
         </LinearLayout>
-
-        <Button
-            android:id="@+id/btnRunAll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/btn_run_all" />
-
-        <TextView
-            android:id="@+id/tvAutoHint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/status_gray"
-            android:textSize="13sp" />
 
         <Button
             android:id="@+id/btnRefresh"
