@@ -10,10 +10,85 @@
         android:orientation="vertical"
         android:padding="12dp">
 
+        <!-- Hlavička: balík TikToku (dlhé podržanie = skrytý výpis stromu obrazovky) -->
+        <TextView
+            android:id="@+id/tvTikTok"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <!-- Stav služby dostupnosti (dlhé podržanie = zdieľať posledný výpis) -->
+        <TextView
+            android:id="@+id/tvA11y"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnA11ySettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_a11y_settings" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/auto_title"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <CheckBox
+            android:id="@+id/cbConfirm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/cb_confirm" />
+
+        <TextView
+            android:id="@+id/tvMacro"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnShowMacro"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/btn_show_macro" />
+
+            <Button
+                android:id="@+id/btnClearMacro"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/btn_clear_macro" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnRunAll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_run_all" />
+
+        <TextView
+            android:id="@+id/tvAutoHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/status_gray"
+            android:textSize="13sp" />
+
         <Button
             android:id="@+id/btnRefresh"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
             android:text="@string/btn_refresh" />
 
         <!-- Sem sa kódom vkladajú kanály a epizódy -->
@@ -23,39 +98,5 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingTop="8dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/calibration_title"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="@string/calibration_hint"
-            android:textColor="@color/status_gray"
-            android:textSize="13sp" />
-
-        <Button
-            android:id="@+id/btnA11ySettings"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/btn_a11y_settings" />
-
-        <Button
-            android:id="@+id/btnCalibrate"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/btn_calibrate" />
-
-        <Button
-            android:id="@+id/btnShareDump"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/btn_share_dump" />
     </LinearLayout>
 </ScrollView>

@@ -10,6 +10,44 @@
     <string name="channels_error">Nepodarilo sa načítať zoznam kanálov: %1$s</string>
     <string name="no_channels">Žiadne kanály (channels.json je prázdny).</string>
     <string name="no_episodes">Žiadne epizódy s videom.</string>
+    <string name="unsupported_format">Nepodporovaný formát</string>
+    <string name="tiktok_pkg">TikTok: %1$s</string>
+    <string name="tiktok_missing">TikTok sa nenašiel</string>
+    <string name="a11y_status_on">Služba dostupnosti: zapnutá</string>
+    <string name="a11y_status_off">Služba dostupnosti: vypnutá</string>
+    <string name="btn_a11y_settings">Nastavenia dostupnosti</string>
+
+    <!-- Automatické nahrávanie -->
+    <string name="auto_title">Automatické nahrávanie</string>
+    <string name="cb_confirm">Potvrdiť pred uverejnením</string>
+    <string name="macro_none">Postup ešte nie je naučený</string>
+    <string name="macro_count">Postup: %1$s</string>
+    <string name="warn_no_account_step">Postup nemá prepnutie účtu. Pri viacerých účtoch ho nahraj znova a začni na inom účte, než na ktorý nahrávaš.</string>
+    <string name="btn_show_macro">Zobraziť postup</string>
+    <string name="btn_clear_macro">Zmazať postup</string>
+    <string name="macro_dialog_title">Naučený postup</string>
+    <string name="clear_title">Zmazať postup?</string>
+    <string name="clear_text">Naučený postup sa odstráni a budeš ho musieť naučiť znova.</string>
+    <string name="btn_delete">Zmazať</string>
+    <string name="btn_cancel">Zrušiť</string>
+    <string name="btn_close">Zavrieť</string>
+    <string name="btn_run_all">Nahrať všetko (nové diely)</string>
+    <string name="auto_hint_a11y_off">Zapni službu dostupnosti (tlačidlo vyššie), inak sa nedá nahrávať automaticky.</string>
+    <string name="auto_hint_no_macro">Najprv nauč postup na niektorom diele (tlačidlo „Naučiť postup na tomto diele“).</string>
+    <string name="auto_hint_ready">Nahrá sa najnovší diel každého kanála, ktorý ešte nie je označený ako hotový. Postup sa dá naučiť znova dlhým podržaním „Nahrať automaticky“ pri diele.</string>
+    <string name="toast_no_new">Žiadne nové diely na nahratie.</string>
+    <string name="toast_auto_started">Spúšťam automatické nahrávanie. Sleduj kartu na ľavom okraji.</string>
+    <string name="toast_busy">Služba práve niečo robí. Zastav to tlačidlom Stop na karte.</string>
+    <string name="toast_no_macro">Najprv nauč postup.</string>
+
+    <!-- Učenie postupu -->
+    <string name="btn_learn">Naučiť postup na tomto diele</string>
+    <string name="btn_auto">Nahrať automaticky</string>
+    <string name="learn_title">Naučiť postup</string>
+    <string name="learn_text">1) Appka stiahne video a skopíruje popis.\n\n2) Otvorí sa TikTok – začni na INOM účte, než je %1$s.\n\n3) Rukou: prepni účet na %2$s, nahraj najnovšie video z galérie, (voliteľne zvuk a hlasitosť), Ďalej, vlož popis (podržať → Vložiť), Uverejniť.\n\n4) Appka si kroky zapamätá.</string>
+    <string name="learn_start">Spustiť</string>
+    <string name="toast_learn_failed">Učenie sa nepodarilo spustiť (TikTok sa neotvoril alebo služba práve niečo robí).</string>
+    <string name="toast_learn_started">Video je v galérii a popis v schránke. Urob postup rukou, appka ho zaznamenáva.</string>
 
     <!-- Epizóda -->
     <string name="episode_title">Ep. %1$d – %2$s</string>
@@ -27,29 +65,24 @@
 
     <!-- Správy -->
     <string name="toast_downloading">Sťahujem video do Movies/TikTokNahravac. Popis je skopírovaný do schránky.</string>
-    <string name="toast_download_done">Video je stiahnuté.</string>
-    <string name="toast_download_failed">Sťahovanie zlyhalo. Skús znova.</string>
-    <string name="toast_download_error">Sťahovanie sa nepodarilo spustiť: %1$s</string>
+    <string name="toast_download_done">Video je stiahnuté, popis je v schránke.</string>
+    <string name="toast_download_error">Sťahovanie zlyhalo: %1$s</string>
     <string name="toast_need_download">Najprv stiahni video.</string>
-    <string name="toast_no_uri">Súbor videa sa nenašiel. Stiahni ho znova.</string>
+    <string name="toast_tiktok_missing">TikTok nie je nainštalovaný</string>
+    <string name="toast_share_failed">Otvorenie TikToku zlyhalo: %1$s</string>
     <string name="toast_account_hint">Účet: %1$s – prepni účet, vlož popis (podržať → Vložiť)</string>
     <string name="toast_storage_denied">Bez povolenia úložiska sa video nedá stiahnuť.</string>
     <string name="chooser_title">Nahrať video cez…</string>
 
-    <!-- Kalibrácia / dostupnosť -->
-    <string name="calibration_title">Kalibrácia (pre budúce automatické klikanie)</string>
-    <string name="calibration_hint">Služba dostupnosti je predvolene vypnutá. Zapni ju v Nastaveniach dostupnosti. Po stlačení tlačidla nižšie prepni do TikToku na obrazovku, ktorú chceš uložiť.</string>
-    <string name="btn_a11y_settings">Nastavenia dostupnosti</string>
-    <string name="btn_calibrate">Nahrať strom obrazovky (kalibrácia)</string>
-    <string name="btn_share_dump">Zdieľať posledný výpis</string>
+    <!-- Služba dostupnosti / ladenie -->
     <string name="toast_a11y_not_enabled">Najprv zapni službu „TikTok Nahrávač“ v Nastaveniach dostupnosti.</string>
     <string name="toast_dump_requested">Prepni sa do TikToku. Obrazovka sa uloží ~%1$d s po tom, čo bude TikTok v popredí.</string>
     <string name="toast_dump_saved">Strom obrazovky uložený: %1$s</string>
     <string name="toast_dump_failed">Uloženie stromu zlyhalo: %1$s</string>
-    <string name="toast_dump_timeout">Kalibrácia vypršala – TikTok sa nedostal do popredia.</string>
+    <string name="toast_dump_timeout">Výpis vypršal – TikTok sa nedostal do popredia.</string>
     <string name="toast_no_dump">Zatiaľ nie je žiadny výpis.</string>
     <string name="share_dump_title">Zdieľať výpis obrazovky</string>
-    <string name="notif_channel_name">Kalibrácia TikToku</string>
+    <string name="notif_channel_name">Ladenie TikToku</string>
     <string name="notif_dump_title">Strom obrazovky uložený</string>
-    <string name="a11y_description">Číta strom obrazovky TikToku pre kalibráciu a v budúcnosti pomáha vyplniť popis a uverejniť video. Aplikácia o vás nič nezbiera ani neodosiela.</string>
+    <string name="a11y_description">Zaznamenáva a prehráva kliknutia v TikToku, ale len keď to sám spustíš v appke („Naučiť postup“, „Nahrať automaticky“). Číta texty a tlačidlá na obrazovke TikToku, aby našla správne miesto. Appka o tebe nič nezbiera ani neodosiela.</string>
 </resources>

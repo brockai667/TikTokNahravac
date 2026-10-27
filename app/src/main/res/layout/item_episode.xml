@@ -47,6 +47,18 @@
         android:text="@string/btn_download" />
 
     <Button
+        android:id="@+id/btnLearn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/btn_learn" />
+
+    <Button
+        android:id="@+id/btnAuto"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/btn_auto" />
+
+    <Button
         android:id="@+id/btnOpen"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

@@ -2,14 +2,11 @@ package sk.brock.nahravac
 
 import android.Manifest
 import android.app.Activity
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -18,10 +15,10 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -41,22 +38,28 @@ class MainActivity : Activity() {
     }
 
     private lateinit var container: LinearLayout
+    private lateinit var tvTikTok: TextView
+    private lateinit var tvA11y: TextView
+    private lateinit var tvMacro: TextView
+    private lateinit var tvAutoHint: TextView
+    private lateinit var btnRunAll: Button
+
     private var channels: List<Channel> = emptyList()
     private var channelsError: String? = null
     private val states = LinkedHashMap<String, ChannelState>()
-    private val executor: ExecutorService = Executors.newFixedThreadPool(2)
-    private val ui = Handler(Looper.getMainLooper())
-    private var pendingDownload: Episode? = null
 
-    private val downloadReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
-            if (id <= 0 || !isOurDownload(id)) return
-            val ok = Downloads.status(this@MainActivity, id) == DownloadManager.STATUS_SUCCESSFUL
-            toast(getString(if (ok) R.string.toast_download_done else R.string.toast_download_failed))
-            render()
-        }
-    }
+    /** Načítanie epizód (sieť, 2 vlákna) a sťahovanie videí (po jednom). */
+    private val executor: ExecutorService = Executors.newFixedThreadPool(2)
+    private val downloader: ExecutorService = Executors.newSingleThreadExecutor()
+    private val ui = Handler(Looper.getMainLooper())
+
+    /** Kľúče epizód, ktoré sa práve sťahujú / sťahovanie zlyhalo. */
+    private val downloading = HashSet<String>()
+    private val failed = HashSet<String>()
+
+    /** Čo sa má spustiť po udelení povolenia úložiska (Android 8-9). */
+    private var afterStorage: (() -> Unit)? = null
+    private var macroSteps: List<Step> = emptyList()
 
     // ------------------------------------------------------------------
     // Životný cyklus
@@ -66,11 +69,32 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         container = findViewById(R.id.container)
+        tvTikTok = findViewById(R.id.tvTikTok)
+        tvA11y = findViewById(R.id.tvA11y)
+        tvMacro = findViewById(R.id.tvMacro)
+        tvAutoHint = findViewById(R.id.tvAutoHint)
+        btnRunAll = findViewById(R.id.btnRunAll)
 
         findViewById<Button>(R.id.btnRefresh).setOnClickListener { refresh() }
         findViewById<Button>(R.id.btnA11ySettings).setOnClickListener { openAccessibilitySettings() }
-        findViewById<Button>(R.id.btnCalibrate).setOnClickListener { requestDump() }
-        findViewById<Button>(R.id.btnShareDump).setOnClickListener { shareLastDump() }
+        findViewById<Button>(R.id.btnShowMacro).setOnClickListener { showMacro() }
+        findViewById<Button>(R.id.btnClearMacro).setOnClickListener { confirmClearMacro() }
+        btnRunAll.setOnClickListener { runNewEpisodes() }
+
+        findViewById<CheckBox>(R.id.cbConfirm).apply {
+            isChecked = Store.confirmBeforePost(this@MainActivity)
+            setOnCheckedChangeListener { _, checked -> Store.setConfirmBeforePost(this@MainActivity, checked) }
+        }
+
+        // Skrytá ladiaca funkcia: dlhé podržanie hlavičky = výpis stromu obrazovky TikToku, stavu služby = zdieľať výpis.
+        tvTikTok.setOnLongClickListener {
+            requestDump()
+            true
+        }
+        tvA11y.setOnLongClickListener {
+            shareLastDump()
+            true
+        }
 
         askNotificationPermission()
         try {
@@ -83,23 +107,118 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        ContextCompat.registerReceiver(
-            this,
-            downloadReceiver,
-            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-            ContextCompat.RECEIVER_EXPORTED,
-        )
-        render() // stav sťahovania sa mohol zmeniť, kým appka bola na pozadí
-    }
-
-    override fun onPause() {
-        unregisterReceiver(downloadReceiver)
-        super.onPause()
+        updateHeader()
+        render() // stav sa mohol zmeniť, kým appka bola na pozadí
     }
 
     override fun onDestroy() {
         executor.shutdownNow()
+        downloader.shutdownNow()
         super.onDestroy()
+    }
+
+    // ------------------------------------------------------------------
+    // Hlavička a sekcia automatického nahrávania
+    // ------------------------------------------------------------------
+
+    private fun updateHeader() {
+        val pkg = TikTokShare.installedPackage(this)
+        tvTikTok.text = if (pkg != null) getString(R.string.tiktok_pkg, pkg) else getString(R.string.tiktok_missing)
+
+        val a11yOn = isAccessibilityServiceEnabled()
+        tvA11y.setText(if (a11yOn) R.string.a11y_status_on else R.string.a11y_status_off)
+
+        macroSteps = Macro.load(this)
+        if (macroSteps.isEmpty()) {
+            tvMacro.setText(R.string.macro_none)
+        } else {
+            var text = getString(R.string.macro_count, Macro.stepsText(macroSteps.size))
+            if (macroSteps.none { it.type == StepType.ACCOUNT }) text += "\n" + getString(R.string.warn_no_account_step)
+            tvMacro.text = text
+        }
+
+        val ready = a11yOn && macroSteps.isNotEmpty()
+        btnRunAll.isEnabled = ready
+        tvAutoHint.setText(
+            when {
+                !a11yOn -> R.string.auto_hint_a11y_off
+                macroSteps.isEmpty() -> R.string.auto_hint_no_macro
+                else -> R.string.auto_hint_ready
+            }
+        )
+    }
+
+    private fun showMacro() {
+        val steps = Macro.load(this)
+        val text = if (steps.isEmpty()) {
+            getString(R.string.macro_none)
+        } else {
+            steps.mapIndexed { i, s -> Macro.describe(s, i + 1) }.joinToString("\n")
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.macro_dialog_title)
+            .setMessage(text)
+            .setPositiveButton(R.string.btn_close, null)
+            .show()
+    }
+
+    private fun confirmClearMacro() {
+        if (Macro.load(this).isEmpty()) {
+            toast(getString(R.string.macro_none))
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.clear_title)
+            .setMessage(R.string.clear_text)
+            .setPositiveButton(R.string.btn_delete) { _, _ ->
+                Macro.clear(this)
+                updateHeader()
+                render()
+            }
+            .setNegativeButton(R.string.btn_cancel, null)
+            .show()
+    }
+
+    /** Pre každý kanál najnovší diel, ktorý ešte nie je označený ako hotový. */
+    private fun runNewEpisodes() {
+        val items = ArrayList<Episode>()
+        for (ch in channels) {
+            val st = states[ch.name]
+            if (st is ChannelState.Ok) {
+                val newest = st.episodes.firstOrNull() ?: continue
+                if (!Store.isDone(this, newest.key)) items.add(newest)
+            }
+        }
+        if (items.isEmpty()) {
+            toast(getString(R.string.toast_no_new))
+            return
+        }
+        startAuto(items)
+    }
+
+    /** Spustí automatické nahrávanie (stiahnutie + prehranie postupu) pre dané epizódy. */
+    private fun startAuto(episodes: List<Episode>) {
+        val svc = TikTokAccessibilityService.instance
+        if (svc == null) {
+            toast(getString(R.string.toast_a11y_not_enabled), long = true)
+            openAccessibilitySettings()
+            return
+        }
+        if (Macro.load(this).isEmpty()) {
+            toast(getString(R.string.toast_no_macro), long = true)
+            return
+        }
+        if (TikTokShare.installedPackage(this) == null) {
+            toast(getString(R.string.toast_tiktok_missing), long = true)
+            return
+        }
+        withStorage {
+            val started = svc.runAll(
+                episodes.map { Replayer.Item(it, it.text) },
+                Store.confirmBeforePost(this),
+            )
+            toast(getString(if (started) R.string.toast_auto_started else R.string.toast_busy), long = true)
+        }
     }
 
     // ------------------------------------------------------------------
@@ -110,7 +229,7 @@ class MainActivity : Activity() {
         states.clear()
         channels.forEach { states[it.name] = ChannelState.Loading }
         render()
-        channels.forEach { ch ->
+        channels.filter { Repo.isSupported(it) }.forEach { ch ->
             executor.execute {
                 val state: ChannelState = try {
                     ChannelState.Ok(Repo.fetchEpisodes(ch, EPISODES_PER_CHANNEL))
@@ -143,6 +262,10 @@ class MainActivity : Activity() {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             }
             container.addView(header)
+            if (!Repo.isSupported(ch)) {
+                container.addView(textLine(getString(R.string.unsupported_format) + ": " + ch.format))
+                continue
+            }
             when (val st = states[ch.name]) {
                 null, ChannelState.Loading -> container.addView(textLine(getString(R.string.loading)))
                 is ChannelState.Error -> container.addView(textLine(getString(R.string.load_error, st.message)))
@@ -169,14 +292,12 @@ class MainActivity : Activity() {
         val due = Repo.formatDue(ep.due) ?: getString(R.string.due_unknown)
         v.findViewById<TextView>(R.id.tvMeta).text = getString(R.string.episode_due, due)
 
-        val status = Downloads.status(this, Store.getDownloadId(this, ep.key))
+        val downloaded = Downloads.savedUri(this, ep) != null
         v.findViewById<TextView>(R.id.tvStatus).setText(
-            when (status) {
-                DownloadManager.STATUS_SUCCESSFUL -> R.string.status_downloaded
-                DownloadManager.STATUS_FAILED -> R.string.status_failed
-                DownloadManager.STATUS_PENDING,
-                DownloadManager.STATUS_RUNNING,
-                DownloadManager.STATUS_PAUSED -> R.string.status_downloading
+            when {
+                ep.key in downloading -> R.string.status_downloading
+                ep.key in failed -> R.string.status_failed
+                downloaded -> R.string.status_downloaded
                 else -> R.string.status_not_downloaded
             }
         )
@@ -186,6 +307,21 @@ class MainActivity : Activity() {
 
         v.findViewById<Button>(R.id.btnDownload).setOnClickListener { downloadEpisode(ep) }
         v.findViewById<Button>(R.id.btnOpen).setOnClickListener { openInTikTok(ep) }
+
+        // Kým nie je postup naučený, ponúkne sa učenie; potom sa dá učiť znova dlhým podržaním "Nahrať automaticky".
+        val hasMacro = macroSteps.isNotEmpty()
+        v.findViewById<Button>(R.id.btnLearn).apply {
+            visibility = if (hasMacro) View.GONE else View.VISIBLE
+            setOnClickListener { learnEpisode(ep) }
+        }
+        v.findViewById<Button>(R.id.btnAuto).apply {
+            setOnClickListener { startAuto(listOf(ep)) }
+            setOnLongClickListener {
+                learnEpisode(ep)
+                true
+            }
+        }
+
         v.findViewById<Button>(R.id.btnDone).apply {
             setText(if (done) R.string.btn_unmark_done else R.string.btn_mark_done)
             setOnClickListener {
@@ -201,50 +337,104 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------------
 
     private fun downloadEpisode(ep: Episode) {
-        if (Build.VERSION.SDK_INT < 29 &&
-            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
-        ) {
-            pendingDownload = ep
-            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), REQ_STORAGE)
-            return
-        }
-        copyToClipboard(ep.text)
-        try {
-            Downloads.enqueue(this, ep)
+        withStorage {
+            copyToClipboard(ep.text)
             toast(getString(R.string.toast_downloading), long = true)
-        } catch (e: Exception) {
-            toast(getString(R.string.toast_download_error, e.message ?: e.javaClass.simpleName), long = true)
+            fetchInBackground(ep) { error ->
+                if (error == null) {
+                    toast(getString(R.string.toast_download_done))
+                } else {
+                    toast(getString(R.string.toast_download_error, describe(error)), long = true)
+                }
+            }
         }
-        render()
     }
 
-    private fun isOurDownload(id: Long): Boolean =
-        states.values.any { st ->
-            st is ChannelState.Ok && st.episodes.any { Store.getDownloadId(this, it.key) == id }
+    /** Stiahne video do galérie na pozadí; [onDone] sa zavolá na hlavnom vlákne (null = úspech). */
+    private fun fetchInBackground(ep: Episode, onDone: (Exception?) -> Unit) {
+        downloading.add(ep.key)
+        failed.remove(ep.key)
+        render()
+        downloader.execute {
+            val error: Exception? = try {
+                Downloads.fetchToGallery(this, ep)
+                null
+            } catch (e: Exception) {
+                e
+            }
+            ui.post {
+                if (isDestroyed) return@post
+                downloading.remove(ep.key)
+                if (error != null) failed.add(ep.key)
+                render()
+                onDone(error)
+            }
         }
+    }
+
+    private fun describe(e: Exception): String =
+        if (e.message.isNullOrBlank()) e.javaClass.simpleName else "${e.javaClass.simpleName}: ${e.message}"
 
     // ------------------------------------------------------------------
-    // Otvoriť v TikToku
+    // Učenie postupu
+    // ------------------------------------------------------------------
+
+    private fun learnEpisode(ep: Episode) {
+        if (!isAccessibilityServiceEnabled() || TikTokAccessibilityService.instance == null) {
+            toast(getString(R.string.toast_a11y_not_enabled), long = true)
+            openAccessibilitySettings()
+            return
+        }
+        if (TikTokShare.installedPackage(this) == null) {
+            toast(getString(R.string.toast_tiktok_missing), long = true)
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.learn_title)
+            .setMessage(getString(R.string.learn_text, ep.channel.name, ep.channel.tiktok))
+            .setPositiveButton(R.string.learn_start) { _, _ -> withStorage { startLearning(ep) } }
+            .setNegativeButton(R.string.btn_cancel, null)
+            .show()
+    }
+
+    /** Stiahne video, skopíruje popis a spustí nahrávanie klikov v TikToku. */
+    private fun startLearning(ep: Episode) {
+        fetchInBackground(ep) { error ->
+            if (error != null) {
+                toast(getString(R.string.toast_download_error, describe(error)), long = true)
+            } else {
+                copyToClipboard(ep.text)
+                val started = TikTokAccessibilityService.instance?.startRecording(ep, ep.text) == true
+                toast(getString(if (started) R.string.toast_learn_started else R.string.toast_learn_failed), long = true)
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Otvoriť v TikToku (ručné zdieľanie)
     // ------------------------------------------------------------------
 
     private fun openInTikTok(ep: Episode) {
-        val id = Store.getDownloadId(this, ep.key)
-        if (Downloads.status(this, id) != DownloadManager.STATUS_SUCCESSFUL) {
-            toast(getString(R.string.toast_need_download))
+        if (TikTokShare.installedPackage(this) == null) {
+            toast(getString(R.string.toast_tiktok_missing), long = true)
             return
         }
-        val uri = Downloads.resolveShareUri(this, ep, id)
+        val uri = Downloads.savedUri(this, ep)
         if (uri == null) {
-            toast(getString(R.string.toast_no_uri), long = true)
+            toast(getString(R.string.toast_need_download))
             return
         }
         copyToClipboard(ep.text)
         toast(getString(R.string.toast_account_hint, ep.channel.tiktok), long = true)
-        TikTokShare.send(this, uri, getString(R.string.chooser_title))
+        try {
+            TikTokShare.send(this, uri, getString(R.string.chooser_title))
+        } catch (e: Exception) {
+            toast(getString(R.string.toast_share_failed, describe(e)), long = true)
+        }
     }
 
     // ------------------------------------------------------------------
-    // Kalibrácia (služba dostupnosti)
+    // Služba dostupnosti
     // ------------------------------------------------------------------
 
     private fun isAccessibilityServiceEnabled(): Boolean {
@@ -257,6 +447,8 @@ class MainActivity : Activity() {
     private fun openAccessibilitySettings() {
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
+
+    // --- skrytý výpis stromu obrazovky (ladenie) ---
 
     private fun requestDump() {
         if (!isAccessibilityServiceEnabled()) {
@@ -297,13 +489,25 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Spustí [block]; na Androide 8-9 najprv vypýta povolenie na zápis do úložiska (video ide do Movies). */
+    private fun withStorage(block: () -> Unit) {
+        if (Build.VERSION.SDK_INT < 29 &&
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) {
+            afterStorage = block
+            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), REQ_STORAGE)
+            return
+        }
+        block()
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_STORAGE) {
-            val ep = pendingDownload
-            pendingDownload = null
+            val action = afterStorage
+            afterStorage = null
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                if (ep != null) downloadEpisode(ep)
+                action?.invoke()
             } else {
                 toast(getString(R.string.toast_storage_denied), long = true)
             }
