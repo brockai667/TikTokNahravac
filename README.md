@@ -62,7 +62,7 @@ Zaznamenané kroky uvidíš cez **Zobraziť postup**, zmažeš ich cez **Zmazať
 
 `account` (nepovinné) = text, ktorý TikTok ukazuje v prepínači účtov; ak chýba, použije sa `tiktok` bez „@“. `format` (nepovinné, predvolene `state`) = parser stavu fabriky; neznámy formát sa v zozname ukáže ako „Nepodporovaný formát“ a preskočí sa. Nový formát = ďalšia vetva `when` v `Repo.fetchEpisodes`.
 
-`format: "drop"` = `tiktok_drop.json` z repa brockai667/tiktok-drop (`{repo: {cta, brand_hashtags, videos: [...]}}`); `dropKey` vyberie repo (napr. `coldcasedaily667`). Popis = `desc` (alebo názov) + CTA + hashtagy; kľúč „hotovo“ je názov súboru. `suffix` (nepovinné, pre oba formáty) sa pripojí na koniec každého popisu, ak tam ešte nie je – napr. kredit hudby CC BY.
+`format: "drop"` = `tiktok_drop.json` z repa brockai667/tiktok-drop (`{repo: {cta, brand_hashtags, videos: [...]}}`); `dropKey` vyberie repo (napr. `coldcasedaily667`). Popis = `caption` (presný popis z fabriky, aký by išiel do Buffera); ak chýba, poskladá sa z `desc` (alebo názvu) + CTA + hashtagov + `suffix` (napr. kredit hudby CC BY). Kľúč „hotovo“ je názov súboru. `since` (nepovinné, ISO čas) skryje staršie diely – tie na TikTok ešte poslal Buffer, aby nevznikol dvojitý post.
 
 ## Známe obmedzenia
 

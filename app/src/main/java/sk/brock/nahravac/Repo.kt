@@ -6,8 +6,11 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -40,6 +43,7 @@ object Repo {
                     format = (o.str("format") ?: FORMAT_STATE).lowercase(Locale.ROOT),
                     dropKey = o.str("dropKey"),
                     suffix = o.str("suffix"),
+                    since = o.str("since"),
                 )
             )
         }
@@ -62,6 +66,27 @@ object Repo {
         else -> throw IOException("Nepodporovaný formát: ${channel.format}")
     }
 
+    /** ISO čas s posunom (aj „Z“) alebo len dátum (polnoc UTC); inak null. */
+    private fun instantOf(s: String?): Instant? {
+        if (s == null) return null
+        return try {
+            OffsetDateTime.parse(s).toInstant()
+        } catch (e: Exception) {
+            try {
+                LocalDate.parse(s.take(10)).atStartOfDay(ZoneOffset.UTC).toInstant()
+            } catch (e2: Exception) {
+                null
+            }
+        }
+    }
+
+    /** False pre diel starší než [Channel.since]; diel bez dátumu sa ukáže. */
+    private fun afterSince(channel: Channel, due: String?): Boolean {
+        val since = instantOf(channel.since) ?: return true
+        val at = instantOf(due) ?: return true
+        return !at.isBefore(since)
+    }
+
     /** Pripojí [Channel.suffix], ak ho text ešte neobsahuje. */
     private fun withSuffix(channel: Channel, text: String): String {
         val s = channel.suffix ?: return text
@@ -70,8 +95,9 @@ object Repo {
     }
 
     /**
-     * Videá jedného repa z tiktok_drop.json, najnovšie (podľa `created`) prvé.
-     * Popis = desc (alebo názov) + CTA + hashtagy + [Channel.suffix]; id = názov súboru (stabilný kľúč „hotovo“).
+     * Videá jedného repa z tiktok_drop.json, najnovšie (podľa `created_at`/`created`) prvé.
+     * Popis = `caption` z fabriky (presne ako pre Buffer); ak chýba, desc (alebo názov) + CTA + hashtagy + [Channel.suffix].
+     * id = názov súboru (stabilný kľúč „hotovo“).
      */
     private fun fetchDropEpisodes(channel: Channel, limit: Int): List<Episode> {
         val body = httpGet(channel.stateUrl)
@@ -87,7 +113,8 @@ object Repo {
             raw.add(o)
         }
         // Stabilné triedenie: rovnaký dátum ponechá poradie z feedu.
-        val sorted = raw.sortedByDescending { it.str("created") ?: "" }
+        val sorted = raw.sortedByDescending { it.createdOf() ?: "" }
+            .filter { afterSince(channel, it.createdOf()) }
         return sorted.take(limit).mapIndexed { i, o ->
             val title = o.str("title") ?: o.str("file") ?: "Video"
             val tags = (o.optJSONArray("hashtags")?.takeIf { it.length() > 0 } ?: brandTags)
@@ -95,18 +122,21 @@ object Repo {
                 ?.joinToString(" ")
                 ?.ifEmpty { null }
             val head = o.str("desc") ?: title.replace('-', ' ')
-            val text = listOfNotNull(head, cta, tags, o.str("credit")).joinToString("\n\n")
+            val text = o.str("caption")
+                ?: withSuffix(channel, listOfNotNull(head, cta, tags).joinToString("\n\n"))
             Episode(
                 channel = channel,
                 number = sorted.size - i,
                 id = o.str("file") ?: title,
                 title = title,
-                text = withSuffix(channel, text),
+                text = text,
                 videoUrl = o.str("url")!!,
-                due = o.str("created"),
+                due = o.createdOf(),
             )
         }
     }
+
+    private fun JSONObject.createdOf(): String? = str("created_at") ?: str("created")
 
     /** Epizódy bez `video` alebo s nečíselným kľúčom sa preskočia. */
     private fun fetchStateEpisodes(channel: Channel, limit: Int): List<Episode> {
@@ -132,7 +162,7 @@ object Repo {
                 )
             )
         }
-        return list.sortedByDescending { it.number }.take(limit)
+        return list.filter { afterSince(channel, it.due) }.sortedByDescending { it.number }.take(limit)
     }
 
     private fun httpGet(url: String): String {

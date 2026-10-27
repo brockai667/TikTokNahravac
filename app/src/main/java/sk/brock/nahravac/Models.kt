@@ -14,8 +14,10 @@ data class Channel(
     val format: String = Repo.FORMAT_STATE,
     /** Pri formáte "drop": kľúč repa v tiktok_drop.json (napr. "coldcasedaily667"). */
     val dropKey: String? = null,
-    /** Text pripojený na koniec každého popisu (napr. kredit hudby), ak v ňom ešte nie je. */
+    /** Text pripojený na koniec poskladaného popisu (napr. kredit hudby), ak v ňom ešte nie je. */
     val suffix: String? = null,
+    /** ISO čas; staršie diely sa neukážu (na TikTok ich ešte poslal Buffer). */
+    val since: String? = null,
 ) {
     /** Krátky ASCII identifikátor kanála (do názvov súborov a kľúčov). */
     val slug: String
