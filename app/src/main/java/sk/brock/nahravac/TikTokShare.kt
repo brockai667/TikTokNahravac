@@ -6,12 +6,43 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 
-/** Zdieľanie videa do TikToku cez ACTION_SEND. */
+/** Zistenie nainštalovaného TikToku, jeho spustenie na domovskej stránke a ručné zdieľanie videa (ACTION_SEND). */
 object TikTokShare {
-    /** Hlavná aplikácia, potom regionálna verzia. */
-    val PACKAGES = listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill")
+    /** Hlavná aplikácia, regionálna verzia, potom Go verzia. */
+    val PACKAGES = listOf(
+        "com.zhiliaoapp.musically",
+        "com.ss.android.ugc.trill",
+        "com.zhiliaoapp.musically.go",
+    )
 
-    /** Pošle video priamo do TikToku; ak nie je nainštalovaný, otvorí bežný výber aplikácií. */
+    /** Prvý nainštalovaný balík TikToku, alebo null. */
+    @Suppress("DEPRECATION")
+    fun installedPackage(ctx: Context): String? = PACKAGES.firstOrNull { pkg ->
+        try {
+            ctx.packageManager.getPackageInfo(pkg, 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Spustí TikTok vždy od začiatku (domovský feed). Vráti false, ak sa to nepodarilo. */
+    fun launchHome(ctx: Context): Boolean {
+        val pkg = installedPackage(ctx) ?: return false
+        return try {
+            val intent = ctx.packageManager.getLaunchIntentForPackage(pkg) ?: return false
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            ctx.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Pošle video do nainštalovaného TikToku; ak ho nevie otvoriť priamo, otvorí bežný výber aplikácií.
+     * Ostatné výnimky (nie ActivityNotFound) idú volajúcemu, aby mohol ukázať konkrétny dôvod.
+     */
     fun send(ctx: Context, videoUri: Uri, chooserTitle: String) {
         val base = Intent(Intent.ACTION_SEND).apply {
             type = "video/mp4"
@@ -19,12 +50,13 @@ object TikTokShare {
             clipData = ClipData.newRawUri("video", videoUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        for (pkg in PACKAGES) {
+        val pkg = installedPackage(ctx)
+        if (pkg != null) {
             try {
                 ctx.startActivity(Intent(base).setPackage(pkg))
                 return
             } catch (e: ActivityNotFoundException) {
-                // skúsime ďalší balík
+                // TikTok nemá cieľ pre zdieľanie videa -> bežný výber
             }
         }
         ctx.startActivity(Intent.createChooser(base, chooserTitle))
