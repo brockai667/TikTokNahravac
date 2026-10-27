@@ -44,6 +44,9 @@ class Replayer(
         private const val DISMISS_AFTER_MS = 4_000L
         private const val DISMISS_EVERY_MS = 3_000L
 
+        /** Záloha podľa polohy až po tejto dobe bez zhody, aby sa neklikalo na obrazovku, ktorá sa ešte len načítava. */
+        private const val POSITION_AFTER_MS = 2_000L
+
         /** Tlačidlá, ktoré sa smú samé stlačiť pri zatváraní okna (nikdy OK, Zrušiť, Povoliť, Zahodiť a pod.). */
         private val SAFE_DISMISS = listOf(
             "Not now", "Nie teraz", "Teraz nie", "Later", "Neskôr", "Skip", "Preskočiť",
@@ -253,7 +256,7 @@ class Replayer(
         var lastDismissAt = 0L
         while (!stopped) {
             val node = try {
-                findNow(step, channel)
+                findNow(step, channel, SystemClock.uptimeMillis() - start >= POSITION_AFTER_MS)
             } catch (e: Exception) {
                 null
             }
@@ -274,7 +277,8 @@ class Replayer(
         return null
     }
 
-    private fun findNow(step: Step, channel: Channel): AccessibilityNodeInfo? {
+    /** [byPosition] = povoliť zálohu podľa polohy (Nodes.find (d)); pre ACCOUNT a POST sa nepoužije nikdy. */
+    private fun findNow(step: Step, channel: Channel, byPosition: Boolean): AccessibilityNodeInfo? {
         val roots = rootsFor(step.sel.pkg)
         if (roots.isEmpty()) return null
         val nodes = Nodes.collect(roots)
@@ -282,8 +286,12 @@ class Replayer(
             StepType.ACCOUNT -> Nodes.findAccount(nodes, channel.accountKey)
             StepType.POST -> Nodes.find(nodes, step.sel) ?: Nodes.findByLabels(nodes, Recorder.POST_LABELS)
             else -> {
-                val m = service.resources.displayMetrics
-                Nodes.find(nodes, step.sel, m.widthPixels, m.heightPixels)
+                if (byPosition) {
+                    val m = service.resources.displayMetrics
+                    Nodes.find(nodes, step.sel, m.widthPixels, m.heightPixels)
+                } else {
+                    Nodes.find(nodes, step.sel)
+                }
             }
         }
     }
