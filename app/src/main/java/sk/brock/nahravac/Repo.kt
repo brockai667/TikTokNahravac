@@ -44,6 +44,7 @@ object Repo {
                     dropKey = o.str("dropKey"),
                     suffix = o.str("suffix"),
                     since = o.str("since"),
+                    cover = o.str("cover"),
                 )
             )
         }
@@ -132,11 +133,26 @@ object Repo {
                 text = text,
                 videoUrl = o.str("url")!!,
                 due = o.createdOf(),
+                coverUrl = coverUrlOf(channel, o.str("url")!!, o.str("file")),
             )
         }
     }
 
     private fun JSONObject.createdOf(): String? = str("created_at") ?: str("created")
+
+    /**
+     * Adresa obalu epizódy zo šablóny [Channel.cover]: {video_base} = [videoUrl] bez koncového ".mp4",
+     * {slug} = [file] (pri "drop") alebo posledný segment cesty videa, v oboch prípadoch bez ".mp4".
+     * Bez šablóny alebo pri videu, ktorého adresa nekončí na ".mp4", vráti null (appka použije snímku z videa).
+     */
+    private fun coverUrlOf(channel: Channel, videoUrl: String, file: String?): String? {
+        val template = channel.cover ?: return null
+        if (!videoUrl.endsWith(".mp4", ignoreCase = true)) return null
+        val base = videoUrl.dropLast(".mp4".length)
+        val name = file ?: base.substringAfterLast('/')
+        val slug = if (name.endsWith(".mp4", ignoreCase = true)) name.dropLast(".mp4".length) else name
+        return template.replace("{video_base}", base).replace("{slug}", slug)
+    }
 
     /** Epizódy bez `video` alebo s nečíselným kľúčom sa preskočia. */
     private fun fetchStateEpisodes(channel: Channel, limit: Int): List<Episode> {
@@ -159,6 +175,7 @@ object Repo {
                     text = withSuffix(channel, o.str("text") ?: ""),
                     videoUrl = video,
                     due = o.str("due"),
+                    coverUrl = coverUrlOf(channel, video, null),
                 )
             )
         }

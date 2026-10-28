@@ -3,12 +3,14 @@
     "name": "Plain Sight",
     "tiktok": "@plainsight.667",
     "stateUrl": "https://raw.githubusercontent.com/brockai667/HistoryUntold/main/state.json",
+    "cover": "{video_base}-cover.jpg",
     "since": "2026-10-28T12:00:00Z"
   },
   {
     "name": "Suddenly Rich",
     "tiktok": "@wealth_mindset34",
-    "stateUrl": "https://raw.githubusercontent.com/brockai667/WealthFactory/main/vote/tiktok.json"
+    "stateUrl": "https://raw.githubusercontent.com/brockai667/WealthFactory/main/vote/tiktok.json",
+    "cover": "{video_base}-cover.jpg"
   },
   {
     "name": "ColdCaseDaily",
@@ -16,6 +18,7 @@
     "format": "drop",
     "dropKey": "coldcasedaily667",
     "stateUrl": "https://raw.githubusercontent.com/brockai667/tiktok-drop/main/tiktok_drop.json",
+    "cover": "https://github.com/brockai667/coldcasedaily667/releases/download/thumbs/{slug}.jpg",
     "suffix": "Music: Kevin MacLeod (incompetech.com) · Licensed under CC BY 4.0",
     "since": "2026-10-27T18:00:00Z"
   },
@@ -25,6 +28,7 @@
     "format": "drop",
     "dropKey": "FacelessFactory",
     "stateUrl": "https://raw.githubusercontent.com/brockai667/tiktok-drop/main/tiktok_drop.json",
+    "cover": "https://github.com/brockai667/FacelessFactory/releases/download/thumbs/{slug}.jpg",
     "suffix": "Music: Kevin MacLeod (incompetech.com) · Licensed under CC BY 4.0",
     "since": "2026-10-27T18:00:00Z"
   },

@@ -18,6 +18,8 @@ data class Channel(
     val suffix: String? = null,
     /** ISO čas; staršie diely sa neukážu (na TikTok ich ešte poslal Buffer). */
     val since: String? = null,
+    /** Šablóna adresy obalu: {video_base} = adresa videa bez ".mp4", {slug} = názov súboru videa bez ".mp4". Bez nej sa obal vezme zo snímky videa. */
+    val cover: String? = null,
 ) {
     /** Krátky ASCII identifikátor kanála (do názvov súborov a kľúčov). */
     val slug: String
@@ -37,6 +39,8 @@ data class Episode(
     val text: String,
     val videoUrl: String,
     val due: String?,
+    /** Adresa obalu z fabriky (podľa [Channel.cover]); null = žiadny, použije sa snímka z videa. */
+    val coverUrl: String? = null,
 ) {
     /** Kľúč pre SharedPreferences (hotovo, Uri stiahnutého videa). Pri "drop" podľa súboru, lebo poradie sa mení. */
     val key: String
