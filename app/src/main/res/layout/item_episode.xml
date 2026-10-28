@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Jeden diel v karte kanála: názov, termín, stav nahratia; tlačidlá sú pod "Viac možností" -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="12dp"
-    android:background="@drawable/card_bg"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:paddingTop="10dp">
 
     <TextView
         android:id="@+id/tvTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textColor="#FF111111"
-        android:textSize="16sp"
+        android:textSize="15sp"
         android:textStyle="bold" />
 
     <TextView
@@ -23,50 +22,59 @@
         android:textColor="@color/status_gray"
         android:textSize="13sp" />
 
+    <!-- Stav nahratia: Čaká na nahratie / Nahraté appkou / staršie -->
     <TextView
-        android:id="@+id/tvStatus"
-        android:layout_width="match_parent"
+        android:id="@+id/tvChip"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="@color/status_gray"
-        android:textSize="13sp" />
-
-    <TextView
-        android:id="@+id/tvDone"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/done_mark"
-        android:textColor="@color/done_green"
+        android:layout_marginTop="4dp"
         android:textSize="13sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
+        android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/btnDownload"
+    <!-- Rozbalí sa tlačidlom "Viac možností" na karte kanála -->
+    <LinearLayout
+        android:id="@+id/moreBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/btn_download" />
+        android:orientation="vertical"
+        android:visibility="gone">
 
-    <Button
-        android:id="@+id/btnLearn"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/btn_learn" />
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/status_gray"
+            android:textSize="13sp" />
 
-    <Button
-        android:id="@+id/btnAuto"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/btn_auto" />
+        <Button
+            android:id="@+id/btnDownload"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_download" />
 
-    <Button
-        android:id="@+id/btnOpen"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/btn_open_tiktok" />
+        <Button
+            android:id="@+id/btnLearn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_learn" />
 
-    <Button
-        android:id="@+id/btnDone"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/btn_mark_done" />
+        <Button
+            android:id="@+id/btnAuto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_auto" />
+
+        <Button
+            android:id="@+id/btnOpen"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_open_tiktok" />
+
+        <Button
+            android:id="@+id/btnDone"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_mark_done" />
+    </LinearLayout>
 </LinearLayout>

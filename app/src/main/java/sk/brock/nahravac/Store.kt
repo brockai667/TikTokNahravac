@@ -11,9 +11,16 @@ object Store {
 
     fun isDone(ctx: Context, key: String): Boolean = prefs(ctx).getBoolean("done_$key", false)
 
+    /** Označí diel ako nahratý (aj s časom, pozri [doneAt]) alebo označenie zruší. */
     fun setDone(ctx: Context, key: String, done: Boolean) {
-        prefs(ctx).edit().putBoolean("done_$key", done).apply()
+        prefs(ctx).edit().apply {
+            putBoolean("done_$key", done)
+            if (done) putLong("done_at_$key", System.currentTimeMillis()) else remove("done_at_$key")
+        }.apply()
     }
+
+    /** Čas (ms), kedy bol diel označený ako nahratý; 0 = neznámy (staršia verzia) alebo nenahratý. */
+    fun doneAt(ctx: Context, key: String): Long = prefs(ctx).getLong("done_at_$key", 0L)
 
     /** Uri videa, ktoré appka sama uložila do galérie (text), alebo null. */
     fun getVideoUri(ctx: Context, key: String): String? = prefs(ctx).getString("uri_$key", null)

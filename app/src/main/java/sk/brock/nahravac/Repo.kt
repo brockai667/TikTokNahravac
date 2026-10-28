@@ -199,6 +199,14 @@ object Repo {
         }
     }
 
+    private val shortFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("d.M. HH:mm")
+
+    /** ISO čas (aj len dátum) -> krátky miestny čas "d.M. HH:mm"; nečitateľný = null. */
+    fun formatShort(iso: String?): String? {
+        val at = instantOf(iso) ?: return null
+        return at.atZone(ZoneId.systemDefault()).format(shortFormat)
+    }
+
     private val dueFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("d. M. yyyy HH:mm")
 
     /** ISO čas (napr. 2026-10-26T18:09:00+00:00) -> miestny čas telefónu. */

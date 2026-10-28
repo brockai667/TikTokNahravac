@@ -4,4 +4,7 @@
     <color name="done_green">#FF1E8E3E</color>
     <color name="status_gray">#FF555555</color>
     <color name="card_stroke">#FFCCCCCC</color>
+    <color name="chip_done_bg">#FFE3F4E6</color>
+    <color name="chip_pending_text">#FF8A5A00</color>
+    <color name="chip_pending_bg">#FFFFF1D0</color>
 </resources>

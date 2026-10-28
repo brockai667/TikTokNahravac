@@ -25,6 +25,16 @@
             android:layout_height="wrap_content"
             android:textSize="14sp" />
 
+        <!-- Súhrn: čo ešte treba nahrať (alebo "Všetko je nahraté") -->
+        <TextView
+            android:id="@+id/tvSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#FF111111"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
         <!-- Jedno tlačidlo: stiahne nové diely všetkých kanálov a uverejní ich -->
         <Button
             android:id="@+id/btnRunAll"
@@ -120,5 +130,21 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingTop="8dp" />
+
+        <!-- Diagnostika: pošle posledné diag-*.json (keď sa krok nenašiel) -->
+        <Button
+            android:id="@+id/btnDiag"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_diag" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="16dp"
+            android:text="@string/diag_hint"
+            android:textColor="@color/status_gray"
+            android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>

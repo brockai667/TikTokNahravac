@@ -8,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -45,6 +46,7 @@ class MainActivity : Activity() {
     private lateinit var tvTikTok: TextView
     private lateinit var tvA11y: TextView
     private lateinit var tvMacro: TextView
+    private lateinit var tvSummary: TextView
     private lateinit var btnRunAll: Button
     private lateinit var tvLastDownload: TextView
     private lateinit var btnOpenGallery: Button
@@ -69,6 +71,12 @@ class MainActivity : Activity() {
     private var afterStorage: (() -> Unit)? = null
     private var macroSteps: List<Step> = emptyList()
 
+    /** Veľké tlačidlo práve obnovuje zoznamy (text "Načítavam…" sa nemá prepísať). */
+    private var runAllBusy = false
+
+    /** Kanály s rozbalenými "Viac možností". */
+    private val expanded = HashSet<String>()
+
     // ------------------------------------------------------------------
     // Životný cyklus
     // ------------------------------------------------------------------
@@ -80,6 +88,7 @@ class MainActivity : Activity() {
         tvTikTok = findViewById(R.id.tvTikTok)
         tvA11y = findViewById(R.id.tvA11y)
         tvMacro = findViewById(R.id.tvMacro)
+        tvSummary = findViewById(R.id.tvSummary)
         btnRunAll = findViewById(R.id.btnRunAll)
         tvLastDownload = findViewById(R.id.tvLastDownload)
         btnOpenGallery = findViewById(R.id.btnOpenGallery)
@@ -89,6 +98,7 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.btnA11ySettings).setOnClickListener { openAccessibilitySettings() }
         findViewById<Button>(R.id.btnShowMacro).setOnClickListener { showMacro() }
         findViewById<Button>(R.id.btnClearMacro).setOnClickListener { confirmClearMacro() }
+        findViewById<Button>(R.id.btnDiag).setOnClickListener { shareDiagnostics() }
         btnRunAll.setOnClickListener { onRunAllClicked() }
 
         findViewById<CheckBox>(R.id.cbConfirm).apply {
@@ -140,22 +150,35 @@ class MainActivity : Activity() {
         tvA11y.setText(if (a11yOn) R.string.a11y_status_on else R.string.a11y_status_off)
 
         macroSteps = Macro.load(this)
-        if (macroSteps.isEmpty()) {
-            tvMacro.setText(R.string.macro_none)
+        val switchSteps = Macro.loadSwitch(this)
+        val upload = if (macroSteps.isEmpty()) {
+            getString(R.string.macro_none)
         } else {
-            var text = getString(R.string.macro_count, Macro.stepsText(macroSteps.size))
-            if (macroSteps.none { it.type == StepType.ACCOUNT }) text += "\n" + getString(R.string.warn_no_account_step)
-            tvMacro.text = text
+            getString(R.string.macro_count, Macro.stepsText(macroSteps.size))
         }
+        val switch = if (switchSteps.isEmpty()) {
+            getString(R.string.switch_none)
+        } else {
+            getString(R.string.switch_count, Macro.stepsText(switchSteps.size))
+        }
+        tvMacro.text = upload + "\n" + switch
     }
 
     private fun showMacro() {
         val steps = Macro.load(this)
-        val text = if (steps.isEmpty()) {
+        val switchSteps = Macro.loadSwitch(this)
+        val upload = if (steps.isEmpty()) {
             getString(R.string.macro_none)
         } else {
-            steps.mapIndexed { i, s -> Macro.describe(s, i + 1) }.joinToString("\n")
+            steps.mapIndexed { i, s -> Macro.describe(s, i + 1, withScreen = true) }.joinToString("\n")
         }
+        val switch = if (switchSteps.isEmpty()) {
+            getString(R.string.switch_none)
+        } else {
+            switchSteps.mapIndexed { i, s -> Macro.describe(s, i + 1, withScreen = true) }.joinToString("\n")
+        }
+        val text = getString(R.string.macro_dialog_upload) + "\n" + upload + "\n\n" +
+            getString(R.string.macro_dialog_switch) + "\n" + switch
         AlertDialog.Builder(this)
             .setTitle(R.string.macro_dialog_title)
             .setMessage(text)
@@ -164,7 +187,7 @@ class MainActivity : Activity() {
     }
 
     private fun confirmClearMacro() {
-        if (Macro.load(this).isEmpty()) {
+        if (Macro.load(this).isEmpty() && Macro.loadSwitch(this).isEmpty()) {
             toast(getString(R.string.macro_none))
             return
         }
@@ -208,10 +231,12 @@ class MainActivity : Activity() {
             return
         }
         btnRunAll.isEnabled = false
+        runAllBusy = true
         btnRunAll.setText(R.string.loading)
         refresh {
             btnRunAll.isEnabled = true
-            btnRunAll.setText(R.string.btn_run_all)
+            runAllBusy = false
+            updateSummary()
             if (Macro.load(this).isEmpty()) {
                 val first = newestNotDone().firstOrNull()
                 if (first == null) {
@@ -312,6 +337,7 @@ class MainActivity : Activity() {
 
     private fun render() {
         updateLastDownload()
+        updateSummary()
         container.removeAllViews()
         channelsError?.let {
             container.addView(textLine(getString(R.string.channels_error, it)))
@@ -321,27 +347,49 @@ class MainActivity : Activity() {
             container.addView(textLine(getString(R.string.no_channels)))
             return
         }
-        for (ch in channels) {
-            val header = textLine(getString(R.string.channel_header, ch.name, ch.tiktok)).apply {
-                textSize = 18f
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-            }
-            container.addView(header)
-            if (!Repo.isSupported(ch)) {
-                container.addView(textLine(getString(R.string.unsupported_format) + ": " + ch.format))
-                continue
-            }
-            when (val st = states[ch.name]) {
-                null, ChannelState.Loading -> container.addView(textLine(getString(R.string.loading)))
-                is ChannelState.Error -> container.addView(textLine(getString(R.string.load_error, st.message)))
-                is ChannelState.Ok ->
-                    if (st.episodes.isEmpty()) {
-                        container.addView(textLine(getString(R.string.no_episodes)))
-                    } else {
-                        st.episodes.forEach { container.addView(episodeView(it)) }
-                    }
-            }
+        for (ch in channels) container.addView(channelView(ch))
+    }
+
+    /**
+     * Riadok nad veľkým tlačidlom ("Na nahratie: N (…)" / "Všetko je nahraté ✔") a text tlačidla s počtom videí.
+     * Kým sa zoznamy načítavajú, ostane všeobecný text.
+     */
+    private fun updateSummary() {
+        if (channelsError != null || channels.isEmpty()) {
+            tvSummary.visibility = View.GONE
+            return
         }
+        tvSummary.visibility = View.VISIBLE
+        val supported = channels.filter { Repo.isSupported(it) }
+        val loading = supported.any { ch ->
+            val st = states[ch.name]
+            st == null || st == ChannelState.Loading
+        }
+        if (loading) {
+            tvSummary.setText(R.string.summary_loading)
+            if (!runAllBusy) btnRunAll.setText(R.string.btn_run_all)
+            return
+        }
+        val pending = newestNotDone()
+        var text = if (pending.isEmpty()) {
+            getString(R.string.summary_all_done)
+        } else {
+            getString(R.string.summary_pending, pending.size, pending.joinToString(", ") { "${it.channel.name} #${it.number}" })
+        }
+        val errors = supported.filter { states[it.name] is ChannelState.Error }
+        if (errors.isNotEmpty()) text += "\n" + getString(R.string.summary_errors, errors.joinToString(", ") { it.name })
+        tvSummary.text = text
+        if (!runAllBusy) btnRunAll.text = runAllText(pending.size)
+    }
+
+    /** "▶ Nahrať 1 video / 3 videá / 5 videí na TikTok". */
+    private fun runAllText(n: Int): String {
+        val word = when (n) {
+            1 -> "video"
+            in 2..4 -> "videá"
+            else -> "videí"
+        }
+        return getString(R.string.btn_run_n, n, word)
     }
 
     private fun textLine(text: String): TextView = TextView(this).apply {
@@ -350,12 +398,83 @@ class MainActivity : Activity() {
         setPadding(0, pad, 0, pad)
     }
 
-    private fun episodeView(ep: Episode): View {
+    /** Karta kanála: "názov · handle", poznámka o Bufferi, diely so stavom a prepínač "Viac možností". */
+    private fun channelView(ch: Channel): View {
+        val v = layoutInflater.inflate(R.layout.item_channel, container, false)
+        v.findViewById<TextView>(R.id.tvChannel).text = getString(R.string.channel_title, ch.name, ch.tiktok)
+        val since = Repo.formatShort(ch.since)
+        if (since != null) {
+            v.findViewById<TextView>(R.id.tvSince).apply {
+                text = getString(R.string.channel_since, since)
+                visibility = View.VISIBLE
+            }
+        }
+        val box = v.findViewById<LinearLayout>(R.id.episodes)
+        val more = v.findViewById<Button>(R.id.btnMore)
+        more.visibility = View.GONE
+        if (!Repo.isSupported(ch)) {
+            box.addView(textLine(getString(R.string.unsupported_format) + ": " + ch.format))
+            return v
+        }
+        when (val st = states[ch.name]) {
+            null, ChannelState.Loading -> box.addView(textLine(getString(R.string.loading)))
+            is ChannelState.Error -> box.addView(textLine(getString(R.string.load_error, st.message)))
+            is ChannelState.Ok ->
+                if (st.episodes.isEmpty()) {
+                    box.addView(textLine(getString(R.string.no_episodes)))
+                } else {
+                    val open = ch.name in expanded
+                    val moreBoxes = ArrayList<View>()
+                    st.episodes.forEachIndexed { i, ep ->
+                        val ev = episodeView(ep, newest = i == 0)
+                        val mb = ev.findViewById<View>(R.id.moreBox)
+                        mb.visibility = if (open) View.VISIBLE else View.GONE
+                        moreBoxes.add(mb)
+                        box.addView(ev)
+                    }
+                    more.visibility = View.VISIBLE
+                    more.setText(if (open) R.string.btn_less else R.string.btn_more)
+                    more.setOnClickListener {
+                        val nowOpen = ch.name !in expanded
+                        if (nowOpen) expanded.add(ch.name) else expanded.remove(ch.name)
+                        moreBoxes.forEach { it.visibility = if (nowOpen) View.VISIBLE else View.GONE }
+                        more.setText(if (nowOpen) R.string.btn_less else R.string.btn_more)
+                    }
+                }
+        }
+        return v
+    }
+
+    /** Jeden diel; [newest] = najnovší diel kanála (len ten sa nahráva). */
+    private fun episodeView(ep: Episode, newest: Boolean): View {
         val v = layoutInflater.inflate(R.layout.item_episode, container, false)
 
         v.findViewById<TextView>(R.id.tvTitle).text = getString(R.string.episode_title, ep.number, ep.title)
         val due = Repo.formatDue(ep.due) ?: getString(R.string.due_unknown)
         v.findViewById<TextView>(R.id.tvMeta).text = getString(R.string.episode_due, due)
+
+        val done = Store.isDone(this, ep.key)
+        val chip = v.findViewById<TextView>(R.id.tvChip)
+        when {
+            done -> {
+                val at = Store.doneAt(this, ep.key)
+                chip.text = if (at > 0) {
+                    getString(R.string.chip_done_at, SimpleDateFormat("d.M. HH:mm", Locale.ROOT).format(Date(at)))
+                } else {
+                    getString(R.string.chip_done)
+                }
+                styleChip(chip, getColor(R.color.done_green), getColor(R.color.chip_done_bg))
+            }
+            newest -> {
+                chip.setText(R.string.chip_pending)
+                styleChip(chip, getColor(R.color.chip_pending_text), getColor(R.color.chip_pending_bg))
+            }
+            else -> {
+                chip.setText(R.string.chip_older)
+                chip.setTextColor(getColor(R.color.status_gray))
+                chip.setTypeface(null, android.graphics.Typeface.NORMAL)
+            }
+        }
 
         val downloaded = Downloads.savedUri(this, ep) != null
         v.findViewById<TextView>(R.id.tvStatus).setText(
@@ -366,9 +485,6 @@ class MainActivity : Activity() {
                 else -> R.string.status_not_downloaded
             }
         )
-
-        val done = Store.isDone(this, ep.key)
-        v.findViewById<TextView>(R.id.tvDone).visibility = if (done) View.VISIBLE else View.GONE
 
         v.findViewById<Button>(R.id.btnDownload).setOnClickListener { downloadEpisode(ep) }
         v.findViewById<Button>(R.id.btnOpen).setOnClickListener { openInTikTok(ep) }
@@ -395,6 +511,17 @@ class MainActivity : Activity() {
             }
         }
         return v
+    }
+
+    /** Farebný štítok stavu (zaoblené pozadie). */
+    private fun styleChip(chip: TextView, textColor: Int, bgColor: Int) {
+        val d = resources.displayMetrics.density
+        chip.setTextColor(textColor)
+        chip.background = GradientDrawable().apply {
+            setColor(bgColor)
+            cornerRadius = 10 * d
+        }
+        chip.setPadding((8 * d).toInt(), (3 * d).toInt(), (8 * d).toInt(), (3 * d).toInt())
     }
 
     // ------------------------------------------------------------------
@@ -599,6 +726,32 @@ class MainActivity : Activity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(send, getString(R.string.share_dump_title)))
+    }
+
+    /** Pošle najnovších (najviac 5) diag-*.json z Download/TikTokNahravac (napr. WhatsApp, Gmail). */
+    private fun shareDiagnostics() {
+        if (Build.VERSION.SDK_INT < 29) {
+            toast(getString(R.string.toast_diag_old_android), long = true)
+            return
+        }
+        val uris = Diag.latest(this, 5)
+        if (uris.isEmpty()) {
+            toast(getString(R.string.toast_no_diag))
+            return
+        }
+        val clip = ClipData.newRawUri("diag", uris[0])
+        for (u in uris.drop(1)) clip.addItem(ClipData.Item(u))
+        val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/json"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList<Uri>(uris))
+            clipData = clip
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(Intent.createChooser(send, getString(R.string.share_diag_title)))
+        } catch (e: Exception) {
+            toast(describe(e), long = true)
+        }
     }
 
     // ------------------------------------------------------------------

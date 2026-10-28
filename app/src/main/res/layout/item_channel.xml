@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Karta kanála: názov · handle, poznámka o Bufferi, diely a prepínač "Viac možností" -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="12dp"
+    android:background="@drawable/card_bg"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <TextView
+        android:id="@+id/tvChannel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#FF111111"
+        android:textSize="17sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvSince"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/status_gray"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <!-- Sem sa kódom vkladajú diely (item_episode) alebo stavový riadok -->
+    <LinearLayout
+        android:id="@+id/episodes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" />
+
+    <Button
+        android:id="@+id/btnMore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/btn_more"
+        android:textSize="13sp" />
+</LinearLayout>
