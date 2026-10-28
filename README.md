@@ -6,7 +6,8 @@ Malá Android appka (Kotlin, obyčajné Views), ktorá nahráva videá z faceles
 
 - Z `state.json` každého kanála (zoznam je v `app/src/main/assets/channels.json`) ukáže 3 najnovšie epizódy: názov, číslo, termín v miestnom čase a značku HOTOVO, ak si ju na tomto telefóne označil.
 - Hlavička ukazuje nájdený balík TikToku (`com.zhiliaoapp.musically`, `com.ss.android.ugc.trill` alebo `com.zhiliaoapp.musically.go`) a stav služby dostupnosti.
-- **Stiahnuť + text** – stiahne mp4 do galérie (`Movies/TikTokNahravac/`) a skopíruje popis do schránky. Sťahovanie si robí appka sama (bez DownloadManagera), takže čerstvé video je v galérii vždy **najnovšie**.
+- **Stiahnuť + text** – stiahne mp4 do galérie (`DCIM/TikTokNahravac/`, DCIM vidí každá galéria aj výber súborov v TikToku) a skopíruje popis do schránky. Sťahovanie si robí appka sama (bez DownloadManagera), takže čerstvé video je v galérii vždy **najnovšie**. Počas sťahovania je dialóg s percentami, na karte pri automatickom nahrávaní tiež.
+- **Posledné stiahnutie** – riadok pod tlačidlom hore: názov, veľkosť, priečinok a dĺžka, ako ich vidí galéria (po stiahnutí appka súbor pošle skeneru médií a overí záznam). Dĺžka „?“ = galéria video ešte neindexovala. Tlačidlo **Otvoriť galériu** otvorí naposledy stiahnuté video.
 - **Naučiť postup na tomto diele** – spustí učenie (pozri nižšie).
 - **Nahrať automaticky** – pre jeden diel prehrá naučený postup. Dlhé podržanie tlačidla = naučiť postup znova.
 - **▶ Nahrať všetko na TikTok** – jediné veľké tlačidlo úplne hore (pozri nižšie).
