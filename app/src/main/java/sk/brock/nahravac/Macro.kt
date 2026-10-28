@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -52,6 +53,10 @@ object Macro {
     private const val FILE = "macro.json"
     private const val SWITCH_FILE = "switch.json"
 
+    /** Ozvena = rovnaký krok na tom istom mieste (± 2 % obrazovky) do 250 ms - človek tak rýchlo neťuká. */
+    private const val ECHO_MS = 250L
+    private const val ECHO_DIST = 0.02f
+
     private fun file(ctx: Context) = File(ctx.filesDir, FILE)
 
     private fun switchFile(ctx: Context) = File(ctx.filesDir, SWITCH_FILE)
@@ -83,10 +88,25 @@ object Macro {
                 val o = arr.optJSONObject(i) ?: continue
                 fromJson(o)?.let { out.add(it) }
             }
-            out
+            withoutEchoes(out)
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    /**
+     * Vyhodí ozveny: ťuk/podržanie na tom istom mieste do [ECHO_MS] po predošlom rovnakom kroku. Vznikli vo verzii
+     * 0.4.0, keď lapač pri učení chytil vlastné gesto appky (TikTok dostal jeden ťuk, zapísali sa dva).
+     */
+    private fun withoutEchoes(steps: List<Step>): List<Step> {
+        val out = ArrayList<Step>(steps.size)
+        for (s in steps) {
+            val p = out.lastOrNull()
+            val echo = p != null && s.type == p.type && (s.type == StepType.CLICK || s.type == StepType.LONG) &&
+                s.gapMs < ECHO_MS && abs(s.sel.relX - p.sel.relX) < ECHO_DIST && abs(s.sel.relY - p.sel.relY) < ECHO_DIST
+            if (!echo) out.add(s)
+        }
+        return out
     }
 
     private fun saveFile(f: File, steps: List<Step>) {

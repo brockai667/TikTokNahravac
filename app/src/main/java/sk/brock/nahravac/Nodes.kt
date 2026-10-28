@@ -163,10 +163,15 @@ object Nodes {
         return null
     }
 
-    /** Najhlbší viditeľný uzol, ktorého hranice obsahujú bod (pri rovnakej hĺbke neskorší = navrchu). */
+    /**
+     * Prvok pod bodom z vrstvy navrchu: deti sa prechádzajú v poradí kreslenia a vyhráva posledný viditeľný uzol
+     * s textom/popisom alebo klikateľný (napr. „Next“ galérie, nie „CREATE“ kamery pod ňou). Bez takého uzla
+     * najhlbší viditeľný uzol (pri rovnakej hĺbke neskorší).
+     */
     fun deepestAt(root: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
-        var best: AccessibilityNodeInfo? = null
-        var bestDepth = -1
+        var top: AccessibilityNodeInfo? = null
+        var deepest: AccessibilityNodeInfo? = null
+        var deepestDepth = -1
         val count = intArrayOf(0)
         val r = Rect()
         fun visit(n: AccessibilityNodeInfo, depth: Int) {
@@ -176,17 +181,23 @@ object Nodes {
             val inside = r.contains(x, y)
             // Potomkovia ležia v hraniciach rodiča; uzol s prázdnymi hranicami (kontajner) sa prechádza ďalej.
             if (!inside && !r.isEmpty && depth > 0) return
-            if (inside && n.isVisibleToUser && depth >= bestDepth) {
-                best = n
-                bestDepth = depth
+            if (inside && n.isVisibleToUser) {
+                if (n.isClickable || n.isEditable || ownText(n) != null || ownDesc(n) != null) top = n
+                if (depth >= deepestDepth) {
+                    deepest = n
+                    deepestDepth = depth
+                }
             }
-            for (i in 0 until n.childCount) {
-                val child = n.getChild(i) ?: continue
-                visit(child, depth + 1)
+            val children = (0 until n.childCount).mapNotNull { n.getChild(it) }
+            val ordered = try {
+                children.sortedBy { it.drawingOrder }
+            } catch (e: Exception) {
+                children
             }
+            for (child in ordered) visit(child, depth + 1)
         }
         visit(root, 0)
-        return best
+        return top ?: deepest
     }
 
     /** [node], ak je klikateľný, inak najbližší klikateľný predok (najviac [maxUp] úrovní); inak null. */
@@ -300,6 +311,12 @@ object Nodes {
 
     /** Koľko textov podpisu [sig] je medzi [visible] (presne, bez ohľadu na veľkosť písmen). */
     fun sigOverlap(sig: List<String>, visible: Set<String>): Int = sig.count { it.lowercase(Locale.ROOT) in visible }
+
+    /** Texty podpisu [sig], ktoré v podpise [before] neboli (čím sa obrazovka líši od predošlej). */
+    fun sigNew(sig: List<String>, before: List<String>): List<String> {
+        val old = before.map { it.lowercase(Locale.ROOT) }.toHashSet()
+        return sig.filter { it.lowercase(Locale.ROOT) !in old }
+    }
 
     // --- hľadanie ---
 

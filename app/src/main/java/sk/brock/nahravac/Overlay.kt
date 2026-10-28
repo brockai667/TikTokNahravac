@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -47,10 +48,20 @@ class Overlay(private val service: AccessibilityService) {
         const val LONG_PRESS_MS = 500L
 
         /** Pauza medzi vypnutím dotykov lapača a odoslaním gesta (kým sa zmena okna prejaví). */
-        private const val PASS_DELAY_MS = 32L
+        private const val PASS_DELAY_MS = 60L
 
         /** Poistka: lapač sa znova zapne najneskôr po trvaní gesta + toto. */
         private const val PASS_SAFETY_MS = 1_500L
+
+        /**
+         * Ozvena: lapač chytil naše vlastné gesto (Samsung nestihol vypnúť jeho dotyky). Dotyk na rovnakom mieste
+         * do konca gesta + toto sa nezapíše, len sa gesto pošle znova s dlhšou pauzou [ECHO_DELAY_MS].
+         */
+        private const val ECHO_GRACE_MS = 400L
+        private const val ECHO_DELAY_MS = 200L
+
+        /** Ozvenu jedného gesta pošleme znova najviac toľkokrát (žiadna slučka). */
+        private const val ECHO_MAX = 2
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -67,6 +78,14 @@ class Overlay(private val service: AccessibilityService) {
     private var catcher: View? = null
     private var catcherParams: WindowManager.LayoutParams? = null
     private var passId = 0
+
+    /** Posledné gesto poslané ďalej (na rozpoznanie ozveny); mení sa len na hlavnom vlákne. */
+    private var lastGesture: GestureDescription? = null
+    private var lastDurationMs = 0L
+    private var lastX = 0f
+    private var lastY = 0f
+    private var echoUntil = 0L
+    private var echoCount = 0
 
     /** Prehrávanie práve posiela gesto: všetky naše okná sú nedotykové (mení sa len na hlavnom vlákne). */
     private var replayPass = false
@@ -351,6 +370,7 @@ class Overlay(private val service: AccessibilityService) {
         catcher = null
         catcherParams = null
         passId++
+        lastGesture = null
     }
 
     private fun makeCatcherView(listener: (Caught) -> Unit): View {
@@ -377,17 +397,22 @@ class Overlay(private val service: AccessibilityService) {
                 MotionEvent.ACTION_POINTER_DOWN -> tracking = false
                 MotionEvent.ACTION_UP -> if (tracking) {
                     tracking = false
-                    val dt = e.eventTime - downAt
-                    val moved = max(maxMove, hypot(e.rawX - downX, e.rawY - downY))
-                    val kind = when {
-                        moved >= slop -> Caught.Kind.SWIPE
-                        dt >= LONG_PRESS_MS -> Caught.Kind.LONG
-                        else -> Caught.Kind.TAP
-                    }
-                    try {
-                        listener(Caught(kind, downX, downY, e.rawX, e.rawY, dt))
-                    } catch (ex: Exception) {
-                        // chyba v nahrávaní nesmie zhodiť službu
+                    if (isEcho(downX, downY, slop)) {
+                        // naše vlastné gesto sa vrátilo do lapača: nezapisuje sa, len sa pošle znova
+                        repassEcho()
+                    } else {
+                        val dt = e.eventTime - downAt
+                        val moved = max(maxMove, hypot(e.rawX - downX, e.rawY - downY))
+                        val kind = when {
+                            moved >= slop -> Caught.Kind.SWIPE
+                            dt >= LONG_PRESS_MS -> Caught.Kind.LONG
+                            else -> Caught.Kind.TAP
+                        }
+                        try {
+                            listener(Caught(kind, downX, downY, e.rawX, e.rawY, dt))
+                        } catch (ex: Exception) {
+                            // chyba v nahrávaní nesmie zhodiť službu
+                        }
                     }
                 }
                 // Systémové gesto (napr. späť od okraja) si dotyk vzalo - nič sa neposiela.
@@ -415,37 +440,60 @@ class Overlay(private val service: AccessibilityService) {
     }
 
     /**
-     * Pošle zachytený dotyk ďalej do TikToku: lapač prestane prijímať dotyky, o ~32 ms sa odošle [gesture]
-     * a po jeho skončení (alebo poistke) sa lapač znova zapne. [durationMs] = trvanie gesta.
+     * Pošle zachytený dotyk ďalej do TikToku: lapač prestane prijímať dotyky, o ~60 ms sa odošle [gesture]
+     * a po jeho skončení (alebo poistke) sa lapač znova zapne. [durationMs] = trvanie gesta, [x],[y] = jeho začiatok.
      */
-    fun passThrough(gesture: GestureDescription, durationMs: Long) {
+    fun passThrough(gesture: GestureDescription, durationMs: Long, x: Float, y: Float) {
         onMain {
             if (destroyed) return@onMain
-            val id = ++passId
-            setCatcherTouchable(false)
-            main.postDelayed({
-                if (destroyed) return@postDelayed
-                val ok = try {
-                    service.dispatchGesture(
-                        gesture,
-                        object : AccessibilityService.GestureResultCallback() {
-                            override fun onCompleted(gestureDescription: GestureDescription?) {
-                                restoreCatcher(id)
-                            }
-
-                            override fun onCancelled(gestureDescription: GestureDescription?) {
-                                restoreCatcher(id)
-                            }
-                        },
-                        null,
-                    )
-                } catch (e: Exception) {
-                    false
-                }
-                if (!ok) restoreCatcher(id)
-            }, PASS_DELAY_MS)
-            main.postDelayed({ restoreCatcher(id) }, PASS_DELAY_MS + durationMs + PASS_SAFETY_MS)
+            lastGesture = gesture
+            lastDurationMs = durationMs
+            lastX = x
+            lastY = y
+            echoCount = 0
+            dispatchPass(gesture, durationMs, PASS_DELAY_MS)
         }
+    }
+
+    /** Dotyk na mieste [x],[y] je ozvenou posledného gesta (prišiel počas neho alebo tesne po ňom). Hlavné vlákno. */
+    private fun isEcho(x: Float, y: Float, slop: Float): Boolean =
+        lastGesture != null && SystemClock.uptimeMillis() <= echoUntil && hypot(x - lastX, y - lastY) <= slop
+
+    /** Ozvena: posledné gesto sa pošle znova s dlhšou pauzou (najviac [ECHO_MAX]-krát). Hlavné vlákno. */
+    private fun repassEcho() {
+        val g = lastGesture ?: return
+        if (echoCount >= ECHO_MAX) return
+        echoCount++
+        dispatchPass(g, lastDurationMs, ECHO_DELAY_MS)
+    }
+
+    /** Hlavné vlákno: vypne dotyky lapača, po [delayMs] odošle gesto a po ňom lapač znova zapne. */
+    private fun dispatchPass(gesture: GestureDescription, durationMs: Long, delayMs: Long) {
+        val id = ++passId
+        setCatcherTouchable(false)
+        echoUntil = SystemClock.uptimeMillis() + delayMs + durationMs + ECHO_GRACE_MS
+        main.postDelayed({
+            if (destroyed) return@postDelayed
+            val ok = try {
+                service.dispatchGesture(
+                    gesture,
+                    object : AccessibilityService.GestureResultCallback() {
+                        override fun onCompleted(gestureDescription: GestureDescription?) {
+                            restoreCatcher(id)
+                        }
+
+                        override fun onCancelled(gestureDescription: GestureDescription?) {
+                            restoreCatcher(id)
+                        }
+                    },
+                    null,
+                )
+            } catch (e: Exception) {
+                false
+            }
+            if (!ok) restoreCatcher(id)
+        }, delayMs)
+        main.postDelayed({ restoreCatcher(id) }, delayMs + durationMs + PASS_SAFETY_MS)
     }
 
     private fun restoreCatcher(id: Int) {

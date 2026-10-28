@@ -33,6 +33,9 @@ class Replayer(
 
     private enum class Outcome { DONE, SKIPPED, STOPPED }
 
+    /** Výsledok čakania na obrazovku: OK, AHEAD = TikTok je už na obrazovke ďalšieho kroku, TIMEOUT. */
+    private enum class Screen { OK, AHEAD, TIMEOUT }
+
     /** Stav profilu: je tam cieľový účet? [current] = kľúče účtu, ktorý je v hlavičke (ak je to náš kanál). */
     private class ProfileCheck(val isTarget: Boolean, val current: List<String>?)
 
@@ -47,6 +50,12 @@ class Replayer(
 
         /** Vyskakovacie okno z učenia (Not now…): keď sa do 5 s neukáže, krok sa ticho preskočí. */
         private const val OPTIONAL_TIMEOUT_MS = 5_000L
+
+        /** Krok sa preskočí ako už hotový, ak je TikTok aspoň takto dlho na obrazovke ďalšieho kroku. */
+        private const val AHEAD_AFTER_MS = 3_000L
+
+        /** Po tomto čase stačí na zhodu obrazovky, že predošlá obrazovka zmizla (nové texty kroku nemusia byť). */
+        private const val RELAX_MS = 8_000L
 
         /** Po zhode obrazovky: ako dlho hľadať prvok podľa textu, kým sa ťukne na zaznamenané miesto. */
         private const val LABEL_WAIT_MS = 2_000L
@@ -100,6 +109,9 @@ class Replayer(
     private val decisions = LinkedBlockingQueue<Decision>()
     private val main = Handler(Looper.getMainLooper())
     private var note = ""
+
+    /** Priebeh prehrávania epizódy (krok: výsledok) - ide do diagnostiky. Len na pracovnom vlákne. */
+    private val runLog = ArrayList<String>()
 
     /** Bežiace učenie (len na hlavnom vlákne). */
     private var recorder: Recorder? = null
@@ -500,8 +512,11 @@ class Replayer(
     private fun playUpload(steps: List<Step>, ep: Episode, caption: String, confirmBeforePost: Boolean): Outcome {
         val name = ep.channel.name
         note = ""
+        runLog.clear()
         var skippedAny = false
         var previous: Step? = null
+        // Texty obrazovky, na ktorej sa robil predošlý krok (nové texty ďalšieho kroku sa porovnávajú s nimi).
+        var seen: Set<String> = emptySet()
         val total = steps.size
         for ((i, step) in steps.withIndex()) {
             if (stopped) return Outcome.STOPPED
@@ -510,15 +525,29 @@ class Replayer(
             sleepStoppable(minOf(step.gapMs, MAX_GAP_MS))
             if (stopped) return Outcome.STOPPED
 
+            val before = previous?.sig ?: emptyList()
+
             // Vyskakovacie okno, ktoré bolo pri učení: keď sa neukáže, krok sa ticho preskočí.
             if (isOptional(step)) {
-                if (awaitScreen(step, OPTIONAL_TIMEOUT_MS, dismiss = false)) act(step, ep.channel, caption, optional = true)
+                if (awaitScreen(step, OPTIONAL_TIMEOUT_MS, dismiss = false, before = before, seen = seen)) {
+                    seen = seenNow()
+                    act(step, ep.channel, caption, optional = true)
+                }
                 previous = step
                 continue
             }
 
             val timeout = timeoutFor(step, previous)
-            var result = if (awaitScreen(step, timeout)) StepResult.OK else StepResult.NOT_FOUND
+            val screen = awaitScreenOrAhead(step, steps.getOrNull(i + 1), timeout, true, before, seen)
+            seen = seenNow()
+            if (screen == Screen.AHEAD) {
+                // TikTok je už ďalej (krok sa pri učení zapísal dvakrát) - krok netreba robiť.
+                runLog.add("$n ${Macro.describe(step)}: už hotové, preskočené")
+                previous = step
+                continue
+            }
+            runLog.add("$n ${Macro.describe(step)}: ${screen.name}")
+            var result = if (screen == Screen.OK) StepResult.OK else StepResult.NOT_FOUND
 
             if (result == StepResult.OK && step.type == StepType.POST) {
                 // Pýtame sa, ak to chce používateľ, ak sa niečo preskočilo alebo ak popis nie je na obrazovke.
@@ -537,12 +566,15 @@ class Replayer(
                     showProgress(name, n, total)
                 }
             }
-            if (result == StepResult.OK) result = act(step, ep.channel, caption)
+            if (result == StepResult.OK) {
+                result = act(step, ep.channel, caption)
+                if (result != StepResult.OK) runLog.add("$n: ${result.name}")
+            }
 
             while (result != StepResult.OK) {
                 if (stopped) return Outcome.STOPPED
                 val what = if (result == StepResult.FAILED) "zlyhal" else "sa nenašiel"
-                val saved = Diag.save(service, "Krok $n $what", name, step, n)
+                val saved = Diag.save(service, "Krok $n $what", name, step, n, steps, runLog)
                 val d = ask(
                     "Krok $n $what: ${Macro.describe(step)}" + diagNote(saved),
                     "Znova" to Decision.RETRY,
@@ -551,8 +583,15 @@ class Replayer(
                 )
                 if (d == Decision.RETRY) {
                     showProgress(name, n, total)
-                    result = if (awaitScreen(step, timeout)) act(step, ep.channel, caption) else StepResult.NOT_FOUND
+                    result = if (awaitScreen(step, timeout)) {
+                        seen = seenNow()
+                        act(step, ep.channel, caption)
+                    } else {
+                        StepResult.NOT_FOUND
+                    }
                 } else if (d == Decision.SKIP) {
+                    seen = seenNow()
+                    runLog.add("$n: preskočené tlačidlom")
                     skippedAny = true
                     break
                 } else {
@@ -598,36 +637,91 @@ class Replayer(
     // Obrazovka a prvok kroku
     // ------------------------------------------------------------------
 
+    private fun awaitScreen(
+        step: Step,
+        timeoutMs: Long,
+        dismiss: Boolean = true,
+        before: List<String> = emptyList(),
+        seen: Set<String> = emptySet(),
+    ): Boolean = awaitScreenOrAhead(step, null, timeoutMs, dismiss, before, seen) == Screen.OK
+
+    /** Texty, ktoré sú teraz vidieť v TikToku (malými písmenami); pri chybe prázdna množina. */
+    private fun seenNow(): Set<String> = try {
+        Nodes.visibleTexts(Nodes.collect(Nodes.tiktokRoots(service)))
+    } catch (e: Exception) {
+        emptySet()
+    }
+
     /**
-     * Čaká, kým obrazovka TikToku zodpovedá podpisu kroku (aspoň Nodes.sigNeed textov podpisu je vidieť).
-     * Kým čaká dlhšie než 4 s, skúša zavrieť vyskakovacie okná ([dismiss]). False = vypršal čas / Stop.
+     * Čaká, kým obrazovka TikToku zodpovedá podpisu kroku: aspoň Nodes.sigNeed textov podpisu je vidieť a aj
+     * niektoré texty, ktoré na predošlej obrazovke neboli (jej podpis [before] a všetko, čo na nej bolo vidieť pri
+     * prehrávaní, [seen]) - inak by sa ťuklo skôr, než sa obrazovka zmení (kamera, galéria a editor majú spoločné
+     * „Add sound“, „Music“, „Next“…). Po [RELAX_MS] stačí aj to, že predošlá obrazovka zmizla.
+     *
+     * AHEAD = TikTok je už na obrazovke kroku [ahead] (krok sa pri učení zapísal dvakrát alebo sa už vykonal):
+     * aspoň 3 s nesedí obrazovka kroku ani predošlá, ale sedí obrazovka ďalšieho kroku aj s jeho novými textami.
+     * Kým čaká dlhšie než 4 s, skúša zavrieť vyskakovacie okná ([dismiss]) - nikdy prvkom z obrazovky kroku
+     * ani predošlej (krížik „Close“ galérie). TIMEOUT = vypršal čas / Stop.
      */
-    private fun awaitScreen(step: Step, timeoutMs: Long, dismiss: Boolean = true): Boolean {
+    private fun awaitScreenOrAhead(
+        step: Step,
+        ahead: Step?,
+        timeoutMs: Long,
+        dismiss: Boolean,
+        before: List<String>,
+        seen: Set<String>,
+    ): Screen {
         val need = Nodes.sigNeed(step.sig)
+        val fresh = Nodes.sigNew(step.sig, before + seen)
+        // 1 nový text môže byť náhoda (bublina s radou), 4+ nových = iná obrazovka: musia byť vidieť aspoň 2
+        // („Next“ je v galérii aj v editore).
+        val freshNeed = when {
+            fresh.size < 2 -> 0
+            fresh.size < 4 -> 1
+            else -> 2
+        }
+        val beforeNeed = Nodes.sigNeed(before)
+        val canAhead = ahead != null && ahead.sig.isNotEmpty() &&
+            (step.type == StepType.CLICK || step.type == StepType.LONG || step.type == StepType.SWIPE)
+        val aheadFresh = if (ahead != null && canAhead) Nodes.sigNew(ahead.sig, step.sig + seen) else emptyList()
+        val keep = step.sig + before
         val start = SystemClock.uptimeMillis()
         var lastDismissAt = 0L
         while (!stopped) {
-            val ok = try {
+            val elapsed = SystemClock.uptimeMillis() - start
+            val visible = try {
                 val nodes = Nodes.collect(Nodes.tiktokRoots(service))
-                nodes.isNotEmpty() && Nodes.sigOverlap(step.sig, Nodes.visibleTexts(nodes)) >= need
+                if (nodes.isEmpty()) null else Nodes.visibleTexts(nodes)
             } catch (e: Exception) {
-                false
+                null
             }
-            if (ok) return true
+            if (visible != null) {
+                val changed = Nodes.sigOverlap(fresh, visible) >= freshNeed ||
+                    (elapsed >= RELAX_MS && (beforeNeed == 0 || Nodes.sigOverlap(before, visible) < beforeNeed))
+                if (Nodes.sigOverlap(step.sig, visible) >= need && changed) return Screen.OK
+                // Predošlá obrazovka už nesmie byť vidieť (inak sa len pomaly otvára obrazovka tohto kroku).
+                if (ahead != null && aheadFresh.size >= 2 && elapsed >= AHEAD_AFTER_MS &&
+                    (beforeNeed == 0 || Nodes.sigOverlap(before, visible) < beforeNeed) &&
+                    Nodes.sigOverlap(ahead.sig, visible) >= Nodes.sigNeed(ahead.sig) &&
+                    Nodes.sigOverlap(aheadFresh, visible) >= 2
+                ) {
+                    return Screen.AHEAD
+                }
+            }
             val now = SystemClock.uptimeMillis()
-            if (now - start >= timeoutMs) return false
+            if (now - start >= timeoutMs) return Screen.TIMEOUT
             // Obrazovka sa dlho neukazuje -> možno ju zakrýva vyskakovacie okno TikToku, skúsime ho bezpečne zavrieť.
             if (dismiss && now - start > DISMISS_AFTER_MS && now - lastDismissAt >= DISMISS_EVERY_MS) {
                 lastDismissAt = now
                 try {
-                    dismissPopup()
+                    dismissPopup(keep)
                 } catch (e: Exception) {
                     // zatváranie okna je len pomoc
                 }
             }
             sleepStoppable(POLL_MS)
         }
-        return false
+        return Screen.TIMEOUT
     }
 
     /** Vykoná krok na obrazovke, ktorá už zodpovedá podpisu. [optional] = bez ťuku podľa polohy. */
@@ -721,13 +815,16 @@ class Replayer(
     }
 
     /**
-     * Zatvorí vyskakovacie okno TikToku: ťukne na viditeľný uzol, ktorého text/popis je presne zo [SAFE_DISMISS].
+     * Zatvorí vyskakovacie okno TikToku: ťukne na viditeľný uzol, ktorého text/popis je presne zo [SAFE_DISMISS]
+     * a nie je medzi textami [keep] (obrazovka, ktorá patrí k postupu, napr. krížik „Close“ galérie).
      * Hľadá sa len v oknách TikToku (nikdy v našej karte). True = ťuklo sa.
      */
-    private fun dismissPopup(): Boolean {
+    private fun dismissPopup(keep: List<String> = emptyList()): Boolean {
         val roots = Nodes.tiktokRoots(service)
         if (roots.isEmpty()) return false
-        val node = Nodes.findByLabels(Nodes.collect(roots), SAFE_DISMISS) ?: return false
+        val labels = SAFE_DISMISS.filter { l -> keep.none { it.equals(l, ignoreCase = true) } }
+        if (labels.isEmpty()) return false
+        val node = Nodes.findByLabels(Nodes.collect(roots), labels) ?: return false
         return click(node)
     }
 

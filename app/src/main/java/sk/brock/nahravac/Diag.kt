@@ -26,11 +26,29 @@ object Diag {
     private const val SUBDIR = "TikTokNahravac"
     private const val MAX_NODES = 1_500
 
-    /** Uloží diagnostiku; true = uložená. Volať mimo hlavného vlákna. Chyby sa prehltnú (diagnostika je len pomoc). */
-    fun save(service: AccessibilityService, reason: String, channel: String?, step: Step?, number: Int): Boolean {
+    /**
+     * Uloží diagnostiku; true = uložená. [macro] = celý naučený postup, [log] = priebeh prehrávania.
+     * Volať mimo hlavného vlákna. Chyby sa prehltnú (diagnostika je len pomoc).
+     */
+    fun save(
+        service: AccessibilityService,
+        reason: String,
+        channel: String?,
+        step: Step?,
+        number: Int,
+        macro: List<Step> = emptyList(),
+        log: List<String> = emptyList(),
+    ): Boolean {
         if (Build.VERSION.SDK_INT < 29) return false
         return try {
-            write(service, build(service, reason, channel, step, number).toString(2))
+            val o = build(service, reason, channel, step, number)
+            if (macro.isNotEmpty()) {
+                val arr = JSONArray()
+                for ((i, s) in macro.withIndex()) arr.put(Macro.toJson(s).put("describe", Macro.describe(s, i + 1)))
+                o.put("macro", arr)
+            }
+            if (log.isNotEmpty()) o.put("log", JSONArray(log))
+            write(service, o.toString(2))
             true
         } catch (e: Exception) {
             false

@@ -243,7 +243,7 @@ class Recorder(
         } catch (e: Exception) {
             return
         }
-        overlay.passThrough(gesture, ms)
+        overlay.passThrough(gesture, ms, x1, y1)
     }
 
     // ------------------------------------------------------------------
