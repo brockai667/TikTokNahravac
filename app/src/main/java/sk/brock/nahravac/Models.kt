@@ -42,7 +42,7 @@ data class Episode(
     val key: String
         get() = if (channel.format == Repo.FORMAT_DROP) "${channel.slug}#$id" else "${channel.slug}#$number"
 
-    /** Názov súboru v Movies/TikTokNahravac/. */
+    /** Názov súboru v DCIM/TikTokNahravac/. */
     val fileName: String
         get() {
             val segment = Uri.parse(videoUrl).lastPathSegment

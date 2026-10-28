@@ -22,6 +22,23 @@ object Store {
         prefs(ctx).edit().putString("uri_$key", uri).apply()
     }
 
+    /** Jednoriadkový popis posledného úspešného stiahnutia (názov, veľkosť, priečinok, dĺžka), alebo null. */
+    fun getLastDownload(ctx: Context): String? = prefs(ctx).getString("last_download", null)
+
+    /** Uri posledného úspešne stiahnutého videa (text), alebo null. */
+    fun getLastDownloadUri(ctx: Context): String? = prefs(ctx).getString("last_download_uri", null)
+
+    /** Čas (ms) posledného úspešného stiahnutia; 0 = žiadne. */
+    fun getLastDownloadAt(ctx: Context): Long = prefs(ctx).getLong("last_download_at", 0L)
+
+    fun setLastDownload(ctx: Context, summary: String, uri: String) {
+        prefs(ctx).edit()
+            .putString("last_download", summary)
+            .putString("last_download_uri", uri)
+            .putLong("last_download_at", System.currentTimeMillis())
+            .apply()
+    }
+
     /** Pred stlačením "Uverejniť" sa pýtať na potvrdenie (predvolene nie; nový kľúč, aby sa starý uložený "áno" ignoroval). */
     fun confirmBeforePost(ctx: Context): Boolean = prefs(ctx).getBoolean("confirm_before_post_v2", false)
 
