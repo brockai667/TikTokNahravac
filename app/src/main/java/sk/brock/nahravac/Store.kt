@@ -22,6 +22,16 @@ object Store {
         prefs(ctx).edit().putString("uri_$key", uri).apply()
     }
 
+    /** Uri obalu, ktorý appka uložila do galérie spolu s videom (text), alebo null. */
+    fun getCoverUri(ctx: Context, key: String): String? = prefs(ctx).getString("cover_$key", null)
+
+    /** Zapamätá Uri obalu; null = epizóda nemá obal (starý záznam sa zmaže). */
+    fun setCoverUri(ctx: Context, key: String, uri: String?) {
+        prefs(ctx).edit().apply {
+            if (uri == null) remove("cover_$key") else putString("cover_$key", uri)
+        }.apply()
+    }
+
     /** Jednoriadkový popis posledného úspešného stiahnutia (názov, veľkosť, priečinok, dĺžka), alebo null. */
     fun getLastDownload(ctx: Context): String? = prefs(ctx).getString("last_download", null)
 
