@@ -1,64 +1,70 @@
 # TikTok Nahrávač
 
-Malá Android appka (Kotlin, obyčajné Views), ktorá nahráva videá z faceless fabrík na TikTok priamo z telefónu (natívny upload) namiesto Buffera. Verzia 2 sa **naučí postup nahrávania**: raz ho urobíš rukou, appka si kliky zapamätá a potom ich za teba zopakuje pre každý kanál (TikTok účet).
+Malá Android appka (Kotlin, obyčajné Views), ktorá nahráva videá z faceless fabrík na TikTok priamo z telefónu (natívny upload) namiesto Buffera. Appka sa **raz naučí postup nahrávania** (ty ho raz urobíš rukou) a potom ho za teba zopakuje pre každý kanál. Účet kanála v TikToku prepína sama.
 
-## Čo robí (v2)
+## Čo robí (0.4.0)
 
-- Z `state.json` každého kanála (zoznam je v `app/src/main/assets/channels.json`) ukáže 3 najnovšie epizódy: názov, číslo, termín v miestnom čase a značku HOTOVO, ak si ju na tomto telefóne označil.
-- Hlavička ukazuje nájdený balík TikToku (`com.zhiliaoapp.musically`, `com.ss.android.ugc.trill` alebo `com.zhiliaoapp.musically.go`) a stav služby dostupnosti.
-- **Stiahnuť + text** – stiahne mp4 do galérie (`DCIM/TikTokNahravac/`, DCIM vidí každá galéria aj výber súborov v TikToku) a skopíruje popis do schránky. Sťahovanie si robí appka sama (bez DownloadManagera), takže čerstvé video je v galérii vždy **najnovšie**. Počas sťahovania je dialóg s percentami, na karte pri automatickom nahrávaní tiež.
-  - **Obal:** spolu s videom appka do galérie uloží aj obal epizódy (`<názov>-cover.jpg`, obrázok z fabriky: Plain Sight a Suddenly Rich pri videu v tom istom vydaní, ColdCaseDaily a MindBlownDaily z vydania `thumbs`). BrainHeist obal z fabriky nemá, preto appka uloží snímku z videa v čase 1 s (JPEG, kvalita 90); tá istá snímka sa použije aj vtedy, keď sa obal z fabriky nedá stiahnuť. Obal sa ukladá vždy **pred** videom (s odstupom ~1 s), takže najnovší obrázok v galérii je obal tejto epizódy a najnovšia vec celkovo ostáva **video**.
-- **Posledné stiahnutie** – riadok pod tlačidlom hore: názov, veľkosť, priečinok a dĺžka, ako ich vidí galéria (po stiahnutí appka súbor pošle skeneru médií a overí záznam). Na konci je „obal: z fabriky“ / „obal: snímka z videa“ / „obal: žiadny“. Dĺžka „?“ = galéria video ešte neindexovala. Tlačidlo **Otvoriť galériu** otvorí naposledy stiahnuté video.
-- **Naučiť postup na tomto diele** – spustí učenie (pozri nižšie).
-- **Nahrať automaticky** – pre jeden diel prehrá naučený postup. Dlhé podržanie tlačidla = naučiť postup znova.
-- **▶ Nahrať všetko na TikTok** – jediné veľké tlačidlo úplne hore (pozri nižšie).
-- **Otvoriť v TikToku** – ručné zdieľanie videa (ACTION_SEND). Pri chybe ukáže presný dôvod (trieda výnimky + správa).
-- **Označiť hotovo** – značka v telefóne (dá sa zrušiť). Automatické nahranie ju nastaví samo.
+- Pre každý kanál z `app/src/main/assets/channels.json` (Plain Sight, Suddenly Rich, ColdCaseDaily, MindBlownDaily, BrainHeist – všetky účty sú prihlásené v jednom TikToku) načíta najnovšie diely z fabriky.
+- Jedno veľké tlačidlo **▶ Nahrať N videí na TikTok**: pre každý kanál stiahne najnovší diel (obal + video) do galérie (`DCIM/TikTokNahravac`, video je najnovšie), v TikToku prepne na správny účet a prehrá naučený postup: + → Upload → prvé video → Next → (obal) → popis → Post.
+- Hlavička ukazuje nájdený balík TikToku a stav služby dostupnosti.
+- **Obal:** spolu s videom appka do galérie uloží aj obal epizódy (`<názov>-cover.jpg`, obrázok z fabriky; BrainHeist ho nemá, preto snímka z videa v čase 1 s). Obal sa ukladá vždy **pred** videom, takže najnovší obrázok je obal a najnovšia vec celkovo je **video**.
+- **Posledné stiahnutie** – riadok pod tlačidlom: názov, veľkosť, priečinok, dĺžka a odkiaľ je obal, ako ich vidí galéria. **Otvoriť galériu** otvorí naposledy stiahnuté video.
 
 ## Inštalácia APK
 
 1. Na telefóne otvor stránku Releases repozitára (napr. cez appku GitHub) a stiahni `app-debug.apk` z vydania **latest**.
-2. Povoľ inštaláciu z neznámych zdrojov pre aplikáciu, z ktorej inštaluješ, a APK nainštaluj.
-3. **Posledné odinštalovanie:** verzia 2 je podpísaná pevným kľúčom (`app/debug.keystore`, verejný „debug“ kľúč, nie tajomstvo). Staršie verzie boli podpísané kľúčom, ktorý sa pri každom builde vytvoril nanovo, preto raz treba starú verziu **odinštalovať**. Odteraz sa nové verzie inštalujú ako aktualizácia priamo cez starú.
+2. Povoľ inštaláciu z neznámych zdrojov pre aplikáciu, z ktorej inštaluješ, a APK nainštaluj (ide ako aktualizácia cez staršiu verziu – podpisový kľúč je pevný, `app/debug.keystore`, verejný „debug“ kľúč, nie tajomstvo).
 
 APK sa buduje automaticky (GitHub Actions, `.github/workflows/build.yml`) pri každom pushi do `main`; zároveň sa vydanie `latest` nahradí novým súborom.
 
 ## Zapnutie služby dostupnosti
 
-Služba je predvolene **vypnutá** a sama nič nerobí; kliky v TikToku nahráva a prehráva len keď to spustíš v appke.
+Služba je predvolene **vypnutá** a sama nič nerobí; v TikToku ťuká len keď to spustíš v appke.
 
 1. V appke ťukni na **Nastavenia dostupnosti** (alebo: Nastavenia → Dostupnosť → Nainštalované aplikácie) a zapni **TikTok Nahrávač**.
 2. Android 13+: ak je prepínač sivý („Obmedzené nastavenie“), choď do Nastavenia → Aplikácie → TikTok Nahrávač → ⋮ (vpravo hore) → **Povoliť obmedzené nastavenia** a skús znova.
 
-## Ako naučiť postup
+## Používanie
 
-1. Pri niektorom diele ťukni na **Naučiť postup na tomto diele** a potvrď dialóg.
-2. Appka stiahne video do galérie a skopíruje popis. Otvorí sa TikTok na domovskej stránke.
-3. **Začni na INOM účte, než na ktorý nahrávaš**, aby sa zaznamenalo aj prepnutie účtu.
-4. Rukou urob celé nahratie: prepni účet na cieľový, nahraj najnovšie video z galérie, (voliteľne pridaj zvuk a nastav hlasitosť), Ďalej.
-   - Na obrazovke s popisom ťukni na úpravu obalu v TikToku („Upraviť obal“ / „Edit cover“ / „Select cover“), vyber pridanie obrázka z galérie, ťukni na **PRVÝ (najnovší) obrázok** – to je obal, ktorý appka práve uložila – a potvrď (Uložiť). Potom pokračuj ďalej:
-   - vlož popis (podržať → Vložiť), Uverejniť.
-5. Vľavo uprostred je malá karta „● Učím sa – krok N“ (dá sa presunúť ťahaním za text). Kliknutím na **Uverejniť** sa učenie ukončí a postup sa uloží automaticky; tlačidlom **Hotovo** ho uložíš skôr, **Zrušiť** ho zahodí.
-6. Ak postup neobsahuje prepnutie účtu, appka upozorní: pri viacerých účtoch postup nahraj znova a začni na inom účte, než na ktorý nahrávaš.
+Stačí jedno tlačidlo **▶ Nahrať N videí na TikTok** (úplne hore). N = počet kanálov, ktorých najnovší diel ešte nie je nahratý. Po ťuknutí appka skontroluje službu a TikTok, obnoví zoznamy kanálov a:
 
-Zaznamenané kroky uvidíš cez **Zobraziť postup**, zmažeš ich cez **Zmazať postup**. Postup je v `filesDir/macro.json` na telefóne; dá sa mať len jeden (platí pre všetky kanály, účet sa dosadí podľa `channels.json`).
+- ak nie je čo nahrať, ukáže „Nie je čo nahrať“,
+- ak ešte nie je naučený postup, ponúkne jeho naučenie na prvom čakajúcom diele (raz, pozri nižšie),
+- inak pre každý čakajúci kanál: stiahne diel → prepne účet → otvorí TikTok na domovskej stránke → prehrá postup → po Post počká 20 s a označí diel ako nahratý.
 
-## Ako spustiť automatické nahrávanie
+Vľavo je karta „▶ kanál: krok N/M“ s tlačidlom **Stop** (okamžite zastaví všetko). Kartu môžeš presunúť ťahaním za text.
 
-Stačí jedno tlačidlo **▶ Nahrať všetko na TikTok** (úplne hore, vždy aktívne). Po ťuknutí appka:
+### Prvé spustenie: čo sa appka naučí
 
-1. skontroluje službu dostupnosti (ak je vypnutá, otvorí jej nastavenia) a TikTok,
-2. obnoví zoznamy všetkých kanálov (tlačidlo medzitým ukazuje „Načítavam…“),
-3. ak ešte nie je naučený postup, ponúkne naučenie na prvom novom diele (stačí to urobiť raz), inak
-4. pre každý kanál stiahne najnovší diel, ktorý ešte nie je označený ako hotový, otvorí TikTok, prepne správny účet a prehrá kroky.
+1. **Prepnutie účtu – len ak treba.** Appka otvorí Profil a prečíta meno účtu v hlavičke. Ak je to už správny účet, nič neprepína. Inak skúsi sama: tlačidlo „Switch account“ hore, ťuk na meno aktuálneho účtu (otvorí zoznam účtov) a v zozname ťukne na účet kanála. Ak nič z toho nezaberie, karta napíše **„Prepni účet na @… – appka sa to raz naučí“**: prepni účet rukou (napr. ☰ → Settings and privacy → … → Switch account → účet). Ťuk na účet kanála cestu uloží (`filesDir/switch.json`) a nabudúce ju appka prejde sama.
+2. **Nahratie – raz.** Keď karta ukáže **„● Učím sa…“**, urob rukou: **+** → **Upload** → **PRVÉ (najnovšie) video** → **Next** … (voliteľne Edit cover → pridať z galérie → PRVÝ obrázok = obal → Save) → **ťukni do poľa popisu** (appka popis vloží sama, nič nepíš) → **Post**. Ťuk na Post postup uloží (`filesDir/macro.json`) a video sa uverejní.
+   - Appka zachytáva každý dotyk (ťuk, podržanie, potiahnutie) a hneď ho pošle ďalej do TikToku – ťukaj pokojne, len o chlp pomalšie.
+   - Na karte: **Späť** = tlačidlo späť (zapíše sa ako krok), **Hotovo** = uložiť skôr (bez Post), **Zrušiť** = zahodiť. Systémové gesto späť sa nezapisuje – použi Späť na karte.
+   - Písanie na klávesnici sa nezapisuje, ťuky do iných appiek a systémových okien tiež nie.
 
-Vľavo je karta „▶ kanál: krok N/M“ s tlačidlom **Stop**, ktoré okamžite zastaví celú frontu. Pri jednom diele sa dá použiť aj **Nahrať automaticky** pri diele.
+Učenie sa dá spustiť aj ručne: pri diele **Viac možností** → **Naučiť postup na tomto diele** (kým postup nie je naučený), inak dlhé podržanie **Nahrať automaticky**. **Zobraziť postup** ukáže kroky (aj prepnutie účtu), **Zmazať postup** zmaže oba – appka sa ich naučí znova. Postupy zo starších verzií (pred 0.4.0) sa nenačítajú, treba ich raz naučiť znova.
 
-- Ak sa krok nenájde, karta ponúkne **Znova** / **Preskočiť** / **Stop**.
-- **Potvrdiť pred uverejnením** je predvolene **vypnuté** (nepovinná poistka, dá sa zaškrtnúť). Potvrdenie („Skontroluj účet, video a popis“, **Uverejniť** / **Zrušiť**) sa vyžaduje **vždy**, keď bol niektorý krok preskočený alebo keď sa popis nenašiel v žiadnom editovateľnom poli na obrazovke tesne pred Uverejniť.
-- **Vyskakovacie okná:** ak sa krok dlhšie ako 4 s nenájde, appka každé ~3 s skúsi zavrieť okno TikToku tlačidlom s presným textom Not now, Nie teraz, Teraz nie, Later, Neskôr, Skip, Preskočiť, Got it, Rozumiem, Close, Zavrieť alebo Dismiss. Nič iné (OK, Zrušiť, Povoliť a pod.) sa samo nestláča.
-- **Hľadanie prvkov bez ID:** ak kliknutý prvok nemá viewId a nenašiel sa podľa textu, vyberie sa viditeľný prvok rovnakej triedy najbližšie k zaznamenanej polohe (do 6 % dlhšej strany obrazovky). Text s menom niektorého z našich účtov (hlavička profilu) sa pri učení neukladá, lebo ukazuje práve aktuálny účet.
-- Po uverejnení appka počká 20 s (nech sa nahrávanie v TikToku rozbehne), označí diel ako hotový a pokračuje ďalším kanálom.
+### Ako appka prehráva
+
+- Pred každým krokom počká, kým obrazovka TikToku vyzerá ako pri učení (aspoň 40 % textov z „podpisu obrazovky“, najviac 15 s; po výbere videa 30 s).
+- Prvok hľadá podľa presného textu (napr. „Next“, „Post“) a ťukne do jeho stredu; ak text nemá, ťukne na zaznamenané miesto. Zahmlené ID TikToku sa nepoužívajú. Na „Your Story“ appka nikdy neťukne.
+- Pole popisu vyplní sama. Pred Post sa pýta (**Uverejniť** / **Zrušiť**), ak je zaškrtnuté **Potvrdiť pred uverejnením**, ak sa niektorý krok preskočil alebo ak popis nie je na obrazovke.
+- **Vyskakovacie okná:** ak obrazovka dlhšie ako 4 s nesedí, appka každé ~3 s skúsi zavrieť okno tlačidlom s presným textom Not now, Nie teraz, Teraz nie, Later, Neskôr, Skip, Preskočiť, Got it, Rozumiem, Close, Zavrieť alebo Dismiss. Ak si také okno zatvoril pri učení a pri prehrávaní sa neukáže, krok sa ticho preskočí.
+- Ak sa krok nenájde, karta ponúkne **Znova** / **Preskočiť** / **Stop** a appka uloží diagnostiku. Ak sa nepodarí prepnúť účet: **Pokračovať** (prepol si ručne) / **Preskočiť kanál** / **Stop**.
+
+## Stav v appke
+
+- Nad tlačidlom: **„Na nahratie: N (Plain Sight #4, …)“**, alebo **„Všetko je nahraté ✔“**. „⚠ Nenačítané“ = kanál sa nepodarilo načítať (sieť).
+- Karta kanála: „názov · @handle“ a pri dieloch:
+  - **⏳ Čaká na nahratie** – najnovší diel, ktorý appka ešte nenahrala (nahrá ho tlačidlo hore),
+  - **✔ Nahraté appkou d.M. HH:mm** – nahraté z tohto telefónu (čas, kedy appka diel označila),
+  - **– staršie, nenahráva sa** – appka nahráva vždy len najnovší diel kanála,
+  - **„Staršie diely (pred …) poslal na TikTok Buffer.“** – pri kanáloch s `since` (staršie diely sa vôbec neukazujú).
+- **Viac možností** na karte rozbalí tlačidlá pri dieloch: Stiahnuť + text, Naučiť postup, Nahrať automaticky (len tento diel), Otvoriť v TikToku (ručné zdieľanie), Označiť hotovo / Zrušiť označenie.
+
+## Diagnostika
+
+Keď sa krok nenájde alebo sa nepodarí prepnúť účet, appka uloží súbor `Download/TikTokNahravac/diag-<dátum-čas>.json` (Android 10+): ktorý krok, podpis obrazovky a zoznam viditeľných prvkov TikToku (text, popis, trieda, poloha). Tlačidlo **Diagnostika** dole v appke pošle posledných 5 súborov (WhatsApp, Gmail…), aby sa dal postup opraviť bez telefónu v ruke.
 
 ## Formát channels.json
 
@@ -74,21 +80,21 @@ Vľavo je karta „▶ kanál: krok N/M“ s tlačidlom **Stop**, ktoré okamži
 ]
 ```
 
-`account` (nepovinné) = text, ktorý TikTok ukazuje v prepínači účtov; ak chýba, použije sa `tiktok` bez „@“. `format` (nepovinné, predvolene `state`) = parser stavu fabriky; neznámy formát sa v zozname ukáže ako „Nepodporovaný formát“ a preskočí sa. Nový formát = ďalšia vetva `when` v `Repo.fetchEpisodes`.
+Účet kanála appka spozná podľa kľúčov: `account` (nepovinné, ak TikTok ukazuje iné meno), `tiktok` bez „@“ a `name` – všetko malými písmenami len s písmenami a číslicami (kratšie než 5 znakov sa ignorujú). Text na obrazovke patrí kanálu, ak kľúč obsahuje alebo je začiatkom kľúča (napr. „Plain Sight“ → `plainsight667`). `format` (nepovinné, predvolene `state`) = parser stavu fabriky; neznámy formát sa ukáže ako „Nepodporovaný formát“. Nový formát = ďalšia vetva `when` v `Repo.fetchEpisodes`.
 
-`format: "drop"` = `tiktok_drop.json` z repa brockai667/tiktok-drop (`{repo: {cta, brand_hashtags, videos: [...]}}`); `dropKey` vyberie repo (napr. `coldcasedaily667`). Popis = `caption` (presný popis z fabriky, aký by išiel do Buffera); ak chýba, poskladá sa z `desc` (alebo názvu) + CTA + hashtagov + `suffix` (napr. kredit hudby CC BY). Kľúč „hotovo“ je názov súboru. `cover` (nepovinné) = šablóna adresy obalu: `{video_base}` = adresa videa bez „.mp4“ (napr. `{video_base}-cover.jpg`), `{slug}` = názov súboru videa bez „.mp4“ (napr. `https://github.com/brockai667/coldcasedaily667/releases/download/thumbs/{slug}.jpg`). Bez šablóny sa obal vezme zo snímky videa. `since` (nepovinné, ISO čas) skryje staršie diely – tie na TikTok ešte poslal Buffer, aby nevznikol dvojitý post.
+`format: "drop"` = `tiktok_drop.json` z repa brockai667/tiktok-drop (`{repo: {cta, brand_hashtags, videos: [...]}}`); `dropKey` vyberie repo (napr. `coldcasedaily667`). Popis = `caption` (presný popis z fabriky, aký by išiel do Buffera); ak chýba, poskladá sa z `desc` (alebo názvu) + CTA + hashtagov + `suffix` (napr. kredit hudby CC BY). Kľúč „hotovo“ je názov súboru. `cover` (nepovinné) = šablóna adresy obalu: `{video_base}` = adresa videa bez „.mp4“ (napr. `{video_base}-cover.jpg`), `{slug}` = názov súboru videa bez „.mp4“. Bez šablóny sa obal vezme zo snímky videa. `since` (nepovinné, ISO čas) skryje staršie diely – tie na TikTok ešte poslal Buffer, aby nevznikol dvojitý post.
 
 ## Známe obmedzenia
 
-- Aktualizácia TikToku môže zmeniť tlačidlá (ich ID aj texty). Keď postup prestane fungovať, **nauč ho znova**.
-- Nastavenie hlasitosti zvuku (posuvník) je „best effort“: ak ho TikTok nepodporuje cez službu dostupnosti, krok sa preskočí s upozornením na karte a hlasitosť nastav rukou.
-- Náhodné okná TikToku (reklamy, upozornenia, „Skúsiť novú funkciu“) môžu prekryť očakávané tlačidlo. Appka zatvára len okná s tlačidlami zo zoznamu vyššie; iné zavri rukou a na karte stlač **Znova**.
-- Video sa vyberá ako prvé v galérii (je najnovšie vďaka vlastnému sťahovaniu). Ak niektorý telefón radí galériu inak, môže sa vybrať iné video; v takom prípade zapni potvrdenie pred uverejnením.
-- Na Androide 8–9 appka pri prvom sťahovaní vypýta povolenie na úložisko.
+- Aktualizácia TikToku môže zmeniť obrazovky a texty tlačidiel. Keď postup prestane fungovať, pošli Diagnostiku alebo postup zmaž a nauč znova.
+- Učenie počas gesta (~0,1 s po každom dotyku) neprijíma ďalší dotyk – ťukaj pokojne. Viac prstov naraz sa nezapisuje.
+- Video sa vyberá ako prvé v galérii (je najnovšie vďaka vlastnému sťahovaniu). Ak niektorý telefón radí galériu inak, zapni potvrdenie pred uverejnením.
+- Ak sa meno účtu v TikToku vôbec nepodobá na `name` ani `tiktok`, doplň do `channels.json` pole `account`.
+- Diagnostika sa na Androide 8–9 neukladá. Na Androide 8–9 appka pri prvom sťahovaní vypýta povolenie na úložisko.
 
 ## Skrytá ladiaca funkcia
 
-Dlhé podržanie hlavičky „TikTok: …“ uloží strom obrazovky TikToku do súboru (po ~5 s v popredí; `Android/data/sk.brock.nahravac/files/dumps/`), dlhé podržanie riadku so stavom služby ho pošle ďalej. Hodí sa pri ladení, keď sa niektorý krok nedarí nájsť.
+Dlhé podržanie hlavičky „TikTok: …“ uloží strom obrazovky TikToku do súboru (po ~5 s v popredí; `Android/data/sk.brock.nahravac/files/dumps/`), dlhé podržanie riadku so stavom služby ho pošle ďalej.
 
 ## Build lokálne
 
