@@ -599,7 +599,7 @@ class Replayer(
     // ------------------------------------------------------------------
 
     /**
-     * Čaká, kým obrazovka TikToku zodpovedá podpisu kroku (aspoň max(1, ceil(40 %)) textov podpisu je vidieť).
+     * Čaká, kým obrazovka TikToku zodpovedá podpisu kroku (aspoň Nodes.sigNeed textov podpisu je vidieť).
      * Kým čaká dlhšie než 4 s, skúša zavrieť vyskakovacie okná ([dismiss]). False = vypršal čas / Stop.
      */
     private fun awaitScreen(step: Step, timeoutMs: Long, dismiss: Boolean = true): Boolean {

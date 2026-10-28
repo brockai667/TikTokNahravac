@@ -292,8 +292,11 @@ object Nodes {
         return out
     }
 
-    /** Koľko textov podpisu treba vidieť: max(1, ceil(40 % veľkosti podpisu)); prázdny podpis = 0. */
-    fun sigNeed(sig: List<String>): Int = if (sig.isEmpty()) 0 else maxOf(1, (sig.size * 2 + 4) / 5)
+    /**
+     * Koľko textov podpisu treba vidieť: max(1, ceil(40 % veľkosti podpisu)), najviac však 3 - na obrazovkách
+     * s meniacim sa obsahom (domovský feed) stačia stále texty ako Home/Friends/Profile. Prázdny podpis = 0.
+     */
+    fun sigNeed(sig: List<String>): Int = if (sig.isEmpty()) 0 else minOf(3, maxOf(1, (sig.size * 2 + 4) / 5))
 
     /** Koľko textov podpisu [sig] je medzi [visible] (presne, bez ohľadu na veľkosť písmen). */
     fun sigOverlap(sig: List<String>, visible: Set<String>): Int = sig.count { it.lowercase(Locale.ROOT) in visible }
