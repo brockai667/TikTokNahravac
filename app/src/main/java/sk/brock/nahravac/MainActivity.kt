@@ -8,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -20,6 +21,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -42,6 +46,8 @@ class MainActivity : Activity() {
     private lateinit var tvA11y: TextView
     private lateinit var tvMacro: TextView
     private lateinit var btnRunAll: Button
+    private lateinit var tvLastDownload: TextView
+    private lateinit var btnOpenGallery: Button
 
     private var channels: List<Channel> = emptyList()
     private var channelsError: String? = null
@@ -55,6 +61,9 @@ class MainActivity : Activity() {
     /** Kľúče epizód, ktoré sa práve sťahujú / sťahovanie zlyhalo. */
     private val downloading = HashSet<String>()
     private val failed = HashSet<String>()
+
+    /** Dialóg s priebehom sťahovania (null = nezobrazený). */
+    private var downloadDialog: AlertDialog? = null
 
     /** Čo sa má spustiť po udelení povolenia úložiska (Android 8-9). */
     private var afterStorage: (() -> Unit)? = null
@@ -72,8 +81,11 @@ class MainActivity : Activity() {
         tvA11y = findViewById(R.id.tvA11y)
         tvMacro = findViewById(R.id.tvMacro)
         btnRunAll = findViewById(R.id.btnRunAll)
+        tvLastDownload = findViewById(R.id.tvLastDownload)
+        btnOpenGallery = findViewById(R.id.btnOpenGallery)
 
         findViewById<Button>(R.id.btnRefresh).setOnClickListener { refresh() }
+        btnOpenGallery.setOnClickListener { openLastDownload() }
         findViewById<Button>(R.id.btnA11ySettings).setOnClickListener { openAccessibilitySettings() }
         findViewById<Button>(R.id.btnShowMacro).setOnClickListener { showMacro() }
         findViewById<Button>(R.id.btnClearMacro).setOnClickListener { confirmClearMacro() }
@@ -110,6 +122,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        dismissDownloadDialog()
         executor.shutdownNow()
         downloader.shutdownNow()
         super.onDestroy()
@@ -282,7 +295,23 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Riadok "Posledné stiahnutie" + tlačidlo na otvorenie videa; bez stiahnutia sú oba skryté. */
+    private fun updateLastDownload() {
+        val summary = Store.getLastDownload(this)
+        if (summary == null) {
+            tvLastDownload.visibility = View.GONE
+            btnOpenGallery.visibility = View.GONE
+            return
+        }
+        val at = Store.getLastDownloadAt(this)
+        val whenText = if (at > 0) " (" + SimpleDateFormat("d.M. HH:mm", Locale.ROOT).format(Date(at)) + ")" else ""
+        tvLastDownload.text = getString(R.string.last_download, summary + whenText)
+        tvLastDownload.visibility = View.VISIBLE
+        btnOpenGallery.visibility = View.VISIBLE
+    }
+
     private fun render() {
+        updateLastDownload()
         container.removeAllViews()
         channelsError?.let {
             container.addView(textLine(getString(R.string.channels_error, it)))
@@ -378,7 +407,12 @@ class MainActivity : Activity() {
             toast(getString(R.string.toast_downloading), long = true)
             fetchInBackground(ep) { error ->
                 if (error == null) {
-                    toast(getString(R.string.toast_download_done))
+                    val summary = Store.getLastDownload(this)
+                    toast(
+                        if (summary == null) getString(R.string.toast_download_done)
+                        else getString(R.string.toast_download_done_info, summary),
+                        long = true,
+                    )
                 } else {
                     toast(getString(R.string.toast_download_error, describe(error)), long = true)
                 }
@@ -386,20 +420,31 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Stiahne video do galérie na pozadí; [onDone] sa zavolá na hlavnom vlákne (null = úspech). */
+    /**
+     * Stiahne video do galérie na pozadí a ukazuje dialóg s priebehom (zatvorí sa pred [onDone]).
+     * [onDone] sa zavolá na hlavnom vlákne (null = úspech).
+     */
     private fun fetchInBackground(ep: Episode, onDone: (Exception?) -> Unit) {
         downloading.add(ep.key)
         failed.remove(ep.key)
         render()
+        showDownloadDialog()
         downloader.execute {
+            var lastPercent = -2 // mení sa len na vlákne sťahovania
             val error: Exception? = try {
-                Downloads.fetchToGallery(this, ep)
+                Downloads.fetchToGallery(this, ep) { percent ->
+                    if (percent != lastPercent) {
+                        lastPercent = percent
+                        ui.post { if (!isDestroyed) updateDownloadDialog(percent) }
+                    }
+                }
                 null
             } catch (e: Exception) {
                 e
             }
             ui.post {
                 if (isDestroyed) return@post
+                dismissDownloadDialog()
                 downloading.remove(ep.key)
                 if (error != null) failed.add(ep.key)
                 render()
@@ -408,8 +453,50 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showDownloadDialog() {
+        dismissDownloadDialog()
+        downloadDialog = AlertDialog.Builder(this)
+            .setTitle(R.string.download_dialog_title)
+            .setMessage(R.string.download_dialog_wait)
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun updateDownloadDialog(percent: Int) {
+        downloadDialog?.setMessage(
+            if (percent >= 0) getString(R.string.download_dialog_percent, percent) else getString(R.string.download_dialog_wait)
+        )
+    }
+
+    private fun dismissDownloadDialog() {
+        try {
+            downloadDialog?.dismiss()
+        } catch (e: Exception) {
+            // okno už zaniklo spolu s aktivitou
+        }
+        downloadDialog = null
+    }
+
     private fun describe(e: Exception): String =
         if (e.message.isNullOrBlank()) e.javaClass.simpleName else "${e.javaClass.simpleName}: ${e.message}"
+
+    /** Otvorí naposledy stiahnuté video v prehrávači / galérii (overenie, že ho systém vidí). */
+    private fun openLastDownload() {
+        val text = Store.getLastDownloadUri(this)
+        if (text == null) {
+            toast(getString(R.string.toast_no_last_download))
+            return
+        }
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(Uri.parse(text), "video/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            toast(getString(R.string.toast_open_gallery_failed, describe(e)), long = true)
+        }
+    }
 
     // ------------------------------------------------------------------
     // Učenie postupu
@@ -439,6 +526,7 @@ class MainActivity : Activity() {
             if (error != null) {
                 toast(getString(R.string.toast_download_error, describe(error)), long = true)
             } else {
+                toast(getString(R.string.toast_learn_downloaded))
                 copyToClipboard(ep.text)
                 val started = TikTokAccessibilityService.instance?.startRecording(ep, ep.text) == true
                 toast(getString(if (started) R.string.toast_learn_started else R.string.toast_learn_failed), long = true)

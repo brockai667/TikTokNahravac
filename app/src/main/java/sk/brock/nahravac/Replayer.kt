@@ -118,9 +118,18 @@ class Replayer(
     /** Čerstvé stiahnutie do galérie (video je potom najnovšie). False = fronta sa končí. */
     private fun download(ep: Episode): Boolean {
         while (!stopped) {
-            overlay.show("⬇ ${ep.channel.name}: sťahujem video…", stopButton())
+            val label = "⬇ ${ep.channel.name}: sťahujem video…"
+            overlay.show(label, stopButton())
             try {
-                Downloads.fetchToGallery(service, ep)
+                var lastPercent = -2 // karta sa prekreslí len pri zmene celého percenta
+                Downloads.fetchToGallery(service, ep) { percent ->
+                    if (percent != lastPercent) {
+                        lastPercent = percent
+                        if (percent >= 0 && !stopped) overlay.show("$label $percent %", stopButton())
+                    }
+                }
+                overlay.show("✔ video v galérii", stopButton())
+                sleepStoppable(500)
                 return true
             } catch (e: Exception) {
                 val d = ask(

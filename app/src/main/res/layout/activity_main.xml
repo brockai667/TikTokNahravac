@@ -43,6 +43,23 @@
             android:textColor="@color/status_gray"
             android:textSize="13sp" />
 
+        <!-- Čo sa naposledy stiahlo a ako to vidí galéria (skryté, kým nič nie je stiahnuté) -->
+        <TextView
+            android:id="@+id/tvLastDownload"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/status_gray"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnOpenGallery"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_open_gallery"
+            android:visibility="gone" />
+
         <Button
             android:id="@+id/btnA11ySettings"
             android:layout_width="match_parent"

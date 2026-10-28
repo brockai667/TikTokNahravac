@@ -16,6 +16,13 @@
     <string name="a11y_status_on">Služba dostupnosti: zapnutá</string>
     <string name="a11y_status_off">Služba dostupnosti: vypnutá</string>
     <string name="btn_a11y_settings">Nastavenia dostupnosti</string>
+    <string name="last_download">Posledné stiahnutie: %1$s</string>
+    <string name="btn_open_gallery">Otvoriť galériu</string>
+    <string name="download_dialog_title">Sťahujem video do galérie…</string>
+    <string name="download_dialog_wait">Pripájam sa…</string>
+    <string name="download_dialog_percent">%1$d %%</string>
+    <string name="toast_no_last_download">Zatiaľ nie je žiadne stiahnuté video.</string>
+    <string name="toast_open_gallery_failed">Otvorenie videa zlyhalo: %1$s</string>
 
     <!-- Automatické nahrávanie -->
     <string name="auto_title">Automatické nahrávanie</string>
@@ -46,6 +53,7 @@
     <string name="learn_text">1) Appka stiahne video a skopíruje popis.\n\n2) Otvorí sa TikTok – začni na INOM účte, než je %1$s.\n\n3) Rukou: prepni účet na %2$s, nahraj najnovšie video z galérie, (voliteľne zvuk a hlasitosť), Ďalej, vlož popis (podržať → Vložiť), Uverejniť.\n\n4) Appka si kroky zapamätá.</string>
     <string name="learn_start">Spustiť</string>
     <string name="toast_learn_failed">Učenie sa nepodarilo spustiť (TikTok sa neotvoril alebo služba práve niečo robí).</string>
+    <string name="toast_learn_downloaded">Video je v galérii (DCIM/TikTokNahravac). Otváram TikTok…</string>
     <string name="toast_learn_started">Video je v galérii a popis v schránke. Urob postup rukou, appka ho zaznamenáva.</string>
 
     <!-- Epizóda -->
@@ -63,8 +71,9 @@
     <string name="btn_unmark_done">Zrušiť označenie hotovo</string>
 
     <!-- Správy -->
-    <string name="toast_downloading">Sťahujem video do Movies/TikTokNahravac. Popis je skopírovaný do schránky.</string>
+    <string name="toast_downloading">Sťahujem video do DCIM/TikTokNahravac. Popis je skopírovaný do schránky.</string>
     <string name="toast_download_done">Video je stiahnuté, popis je v schránke.</string>
+    <string name="toast_download_done_info">Video je stiahnuté, popis je v schránke.\n%1$s</string>
     <string name="toast_download_error">Sťahovanie zlyhalo: %1$s</string>
     <string name="toast_need_download">Najprv stiahni video.</string>
     <string name="toast_tiktok_missing">TikTok nie je nainštalovaný</string>
