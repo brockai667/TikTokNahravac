@@ -87,9 +87,10 @@ class Recorder(
         if (Nodes.isInIme(service, x, y)) return After.PASS
         val root = Nodes.tiktokRootAt(service, x, y) ?: return After.PASS
 
-        val sig = Nodes.signature(Nodes.collect(Nodes.tiktokRoots(service)), allKeys)
+        val nodes = Nodes.collect(Nodes.tiktokRoots(service))
+        val sig = Nodes.signature(nodes, allKeys)
         return when (g.kind) {
-            Caught.Kind.TAP -> onTap(root, x, y, sig)
+            Caught.Kind.TAP -> onTap(root, x, y, sig, nodes.any { it.isVisibleToUser && it.isEditable })
             Caught.Kind.LONG -> {
                 val sel = labelSelector(root, x, y)
                 steps.add(Step(StepType.LONG, sel, gap(), sig, durMs = LONG_MS))
@@ -119,7 +120,8 @@ class Recorder(
         }
     }
 
-    private fun onTap(root: AccessibilityNodeInfo, x: Float, y: Float, sig: List<String>): After {
+    /** [captionScreen] = na obrazovke je editovateľné pole (obrazovka s popisom). */
+    private fun onTap(root: AccessibilityNodeInfo, x: Float, y: Float, sig: List<String>, captionScreen: Boolean): After {
         val deepest = Nodes.deepestAt(root, x.toInt(), y.toInt()) ?: root
         val clickable = Nodes.clickableAncestor(deepest)
 
@@ -149,7 +151,10 @@ class Recorder(
             return After.PASS_AND_FINISH
         }
 
-        val isPost = mode == Mode.UPLOAD && labels.any { l -> POST_LABELS.any { it.equals(l, ignoreCase = true) } }
+        // "Post" je aj záložka na obrazovke kamery - Uverejniť platí len na obrazovke s popisom.
+        val isPost = mode == Mode.UPLOAD &&
+            (captionScreen || steps.any { it.type == StepType.CAPTION }) &&
+            labels.any { l -> POST_LABELS.any { it.equals(l, ignoreCase = true) } }
         val sel = selector(labelTarget(deepest, clickable), x, y, withLabel = true)
         steps.add(Step(if (isPost) StepType.POST else StepType.CLICK, sel, gap(), sig))
         return if (isPost) After.PASS_AND_FINISH else After.PASS
