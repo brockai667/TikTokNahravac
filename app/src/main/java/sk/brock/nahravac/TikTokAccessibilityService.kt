@@ -21,8 +21,9 @@ import java.util.Locale
 /**
  * Služba dostupnosti (predvolene VYPNUTÁ; zapína ju používateľ v systémových nastaveniach).
  *
- * V2: appka sa "naučí postup" - [Recorder] zaznamená kliky, ktoré používateľ ručne urobí pri jednom nahraní
- * v TikToku, a [Replayer] ich potom prehrá pre ďalšie videá. Oboje beží IBA keď to používateľ spustí v appke.
+ * Appka sa "naučí postup" - [Recorder] cez lapač dotykov zaznamená ťuknutia, ktoré používateľ ručne urobí pri jednom
+ * nahraní v TikToku, a [Replayer] ich potom prehrá pre ďalšie videá (účet prepína sám). Oboje beží IBA keď to
+ * používateľ spustí v appke.
  * Navyše ostala skrytá ladiaca funkcia: výpis stromu obrazovky TikToku do súboru (dlhé podržanie hlavičky v appke).
  */
 class TikTokAccessibilityService : AccessibilityService() {
@@ -51,7 +52,6 @@ class TikTokAccessibilityService : AccessibilityService() {
     private val pollRunnable = Runnable { tick() }
 
     private var overlay: Overlay? = null
-    private var recorder: Recorder? = null
     private var replayer: Replayer? = null
 
     override fun onServiceConnected() {
@@ -64,8 +64,7 @@ class TikTokAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
-        recorder?.onEvent(event)
+        // Učenie už nepočúva udalosti kliknutí (TikTok ich často neposiela) - dotyky zachytáva lapač v [Overlay].
     }
 
     override fun onInterrupt() {}
@@ -83,8 +82,6 @@ class TikTokAccessibilityService : AccessibilityService() {
     private fun shutDown() {
         instance = null
         handler.removeCallbacks(pollRunnable)
-        recorder?.abort()
-        recorder = null
         replayer?.stop()
         replayer = null
         overlay?.destroy()
@@ -96,19 +93,16 @@ class TikTokAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     /** Niečo práve beží (učenie alebo prehrávanie). */
-    fun isBusy(): Boolean = recorder != null || replayer?.running == true
+    fun isBusy(): Boolean = replayer?.running == true
 
     /**
-     * Spustí učenie postupu na epizóde [ep] s popisom [caption]: otvorí TikTok a nahráva kliky.
-     * False, ak je služba zaneprázdnená alebo sa TikTok nepodarilo otvoriť.
+     * Spustí učenie postupu na epizóde [ep] s popisom [caption]: prepne účet, otvorí TikTok a nahráva dotyky.
+     * False, ak je služba zaneprázdnená.
      */
     fun startRecording(ep: Episode, caption: String): Boolean {
-        val o = overlay ?: return false
         if (isBusy()) return false
-        val r = Recorder(this, o, ep, caption) { recorder = null }
-        if (!r.start()) return false
-        recorder = r
-        return true
+        val r = replayer ?: return false
+        return r.learn(ep, caption)
     }
 
     /** Stiahne a nahrá všetky položky po jednej; False, ak je služba zaneprázdnená. */

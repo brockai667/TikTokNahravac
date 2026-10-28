@@ -1,164 +1,248 @@
 package sk.brock.nahravac
 
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
 import android.os.SystemClock
-import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.view.inputmethod.InputMethodManager
-import android.widget.Toast
 
 /**
- * Nahrávanie postupu: sleduje, čo používateľ ručne robí v TikToku, a ukladá to ako [Step]y.
- * Všetko beží na hlavnom vlákne (udalosti služby dostupnosti aj tlačidlá karty).
+ * Nahrávanie postupu cez lapač dotykov ([Overlay.showCatcher]), ako pri auto-clicker appkách: každý dotyk
+ * používateľa sa zachytí, zapíše ako [Step] (s tým, čo bolo pod prstom, a podpisom obrazovky) a hneď sa rovnakým
+ * gestom pošle ďalej do TikToku. Nespolieha sa na udalosti TYPE_VIEW_CLICKED (TikTok ich pri mnohých prvkoch neposiela).
+ *
+ * [Mode.UPLOAD] = nahratie videa (+ → Upload → video → Next … → Post); ťuk do poľa popisu popis rovno vloží,
+ * ťuk na Post postup uloží. [Mode.SWITCH] = prepnutie účtu na [target]; ťuk na účet kanála postup uloží.
+ * Všetko beží na hlavnom vlákne; výsledok príde cez [onEnd].
  */
 class Recorder(
-    private val service: TikTokAccessibilityService,
+    private val service: AccessibilityService,
     private val overlay: Overlay,
-    private val episode: Episode,
+    private val mode: Mode,
     private val caption: String,
-    private val onEnd: () -> Unit,
+    private val target: Channel?,
+    /** Kľúče účtov všetkých kanálov: mená účtov sa nikdy neukladajú ako štítok ani do podpisu. */
+    private val allKeys: List<String>,
+    private val onEnd: (Result) -> Unit,
 ) {
+    enum class Mode { UPLOAD, SWITCH }
+
+    /** POSTED = uložené s krokom Uverejniť, SAVED = uložené tlačidlom Hotovo, ACCOUNT = uložené prepnutie účtu. */
+    enum class Result { POSTED, SAVED, ACCOUNT, CANCELLED, EMPTY, FAILED }
+
+    private enum class After { PASS, PASS_AND_FINISH, KEEP }
+
     companion object {
         /** Texty tlačidla "Uverejniť" (porovnanie bez ohľadu na veľkosť písmen). */
         val POST_LABELS = listOf("Uverejniť", "Zverejniť", "Publikovať", "Post", "Uverejnit")
 
-        /** Akcie plávajúcej lišty pri úprave textu - nahrávať sa nemajú (popis nastaví krok CAPTION). */
-        private val TOOLBAR_LABELS = setOf(
-            "vložiť", "prilepiť", "paste", "kopírovať", "copy", "vystrihnúť", "cut", "vybrať všetko", "select all",
-        )
-
         private const val MAX_GAP_MS = 10_000L
-    }
+        const val TAP_MS = 50L
+        const val LONG_MS = 600L
+        private const val SWIPE_MIN_MS = 100L
+        private const val SWIPE_MAX_MS = 1_500L
 
-    /** Rozpísaná úprava poľa (text) alebo posuvníka, ktorá sa zapíše ako krok pri ďalšom kliknutí / konci. */
-    private class Pending(
-        val progress: Boolean,
-        val sel: Selector,
-        var value: String,
-        val firstAt: Long,
-        var lastAt: Long,
-    )
+        /** Štítok potomka sa berie len z malého klikateľného prvku (nie z celého zoznamu). */
+        private const val SMALL_HEIGHT = 0.25f
+    }
 
     private val steps = ArrayList<Step>()
-    private val pending = LinkedHashMap<String, Pending>()
     private var lastAt = SystemClock.uptimeMillis()
     private var finished = false
-    private val captionPrefix = caption.trim().take(25)
-    private val accountKey = episode.channel.accountKey
+    private val screen = Nodes.screenSize(service)
+    private val targetKeys = target?.let { Accounts.keys(it) } ?: emptyList()
+    private var note = ""
 
-    /** Kľúče účtov všetkých kanálov: hlavička profilu ukazuje meno AKTUÁLNEHO účtu, takže podľa textu sa pri prehrávaní hľadať nesmie. */
-    private val allAccountKeys: List<String> = try {
-        Repo.loadChannels(service).map { it.accountKey }.filter { it.isNotEmpty() }
-    } catch (e: Exception) {
-        emptyList()
-    }
-    private val metrics = service.resources.displayMetrics
-    private val imePackages: Set<String> = try {
-        service.getSystemService(InputMethodManager::class.java)
-            .enabledInputMethodList.map { it.packageName }.toSet()
-    } catch (e: Exception) {
-        emptySet()
-    }
-
-    /** Spustí TikTok na domovskej stránke a ukáže kartu. False, ak sa TikTok nepodarilo otvoriť. */
-    fun start(): Boolean {
-        if (!TikTokShare.launchHome(service)) return false
+    /** Zapne lapač dotykov a ukáže kartu (karta je nad lapačom). */
+    fun start() {
+        overlay.showCatcher { onGesture(it) }
         showStatus()
-        return true
     }
 
-    fun onEvent(event: AccessibilityEvent) {
-        if (finished) return
-        val pkg = event.packageName?.toString() ?: return
-        if (isIgnored(pkg)) return
+    // ------------------------------------------------------------------
+    // Dotyky
+    // ------------------------------------------------------------------
+
+    private fun onGesture(g: Caught) {
+        if (finished) {
+            pass(g)
+            return
+        }
+        var after = After.PASS
         try {
-            when (event.eventType) {
-                AccessibilityEvent.TYPE_VIEW_CLICKED -> onClick(event)
-                AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> onTextChanged(event)
-                AccessibilityEvent.TYPE_VIEW_SELECTED,
-                AccessibilityEvent.TYPE_VIEW_SCROLLED -> onRange(event)
-                else -> {}
-            }
+            after = handle(g)
         } catch (e: Exception) {
-            // jedna zlá udalosť nesmie zhodiť nahrávanie
+            // jeden zlý dotyk nesmie zhodiť nahrávanie; dotyk sa aspoň pošle ďalej
+        }
+        if (after != After.KEEP) pass(g)
+        if (after == After.PASS_AND_FINISH) finish(save = true) else showStatus()
+    }
+
+    /** Zapíše krok (ak treba) a povie, čo s dotykom ďalej. */
+    private fun handle(g: Caught): After {
+        val x = g.x1
+        val y = g.y1
+        // Naše okná, klávesnica a cudzie okná: dotyk prejde ďalej, nič sa nezapíše.
+        if (overlay.cardContains(x, y)) return After.PASS
+        if (Nodes.isInIme(service, x, y)) return After.PASS
+        val root = Nodes.tiktokRootAt(service, x, y) ?: return After.PASS
+
+        val sig = Nodes.signature(Nodes.collect(Nodes.tiktokRoots(service)), allKeys)
+        return when (g.kind) {
+            Caught.Kind.TAP -> onTap(root, x, y, sig)
+            Caught.Kind.LONG -> {
+                val sel = labelSelector(root, x, y)
+                steps.add(Step(StepType.LONG, sel, gap(), sig, durMs = LONG_MS))
+                After.PASS
+            }
+            Caught.Kind.SWIPE -> {
+                val sel = Selector(
+                    pkg = root.packageName?.toString() ?: "",
+                    viewId = null,
+                    text = null,
+                    desc = null,
+                    cls = null,
+                    index = 0,
+                    relX = x / screen.x,
+                    relY = y / screen.y,
+                )
+                steps.add(
+                    Step(
+                        StepType.SWIPE, sel, gap(), sig,
+                        endX = g.x2 / screen.x,
+                        endY = g.y2 / screen.y,
+                        durMs = swipeMs(g),
+                    )
+                )
+                After.PASS
+            }
         }
     }
 
-    private fun isIgnored(pkg: String): Boolean =
-        pkg == service.packageName ||
-            pkg == "com.android.systemui" ||
-            pkg in imePackages ||
-            pkg.contains("launcher", ignoreCase = true)
+    private fun onTap(root: AccessibilityNodeInfo, x: Float, y: Float, sig: List<String>): After {
+        val deepest = Nodes.deepestAt(root, x.toInt(), y.toInt()) ?: root
+        val clickable = Nodes.clickableAncestor(deepest)
+
+        // Pole popisu: zapíše sa CAPTION a popis sa hneď vloží (používateľ nič nepíše).
+        val editable = listOfNotNull(deepest, clickable).firstOrNull { it.isEditable }
+        if (mode == Mode.UPLOAD && editable != null) {
+            steps.add(Step(StepType.CAPTION, selector(editable, x, y, withLabel = false), gap(), sig))
+            val filled = try {
+                Nodes.fillText(service, editable, caption)
+            } catch (e: Exception) {
+                false
+            }
+            if (filled) {
+                note = "\n✔ popis vložený"
+                return After.KEEP
+            }
+            // Vloženie nevyšlo: ťuk prejde (otvorí klávesnicu), popis je v schránke - podržať → Vložiť.
+            Nodes.copyToClipboard(service, caption)
+            note = "\n⚠ popis sa nevložil – podrž pole → Vložiť"
+            return After.PASS
+        }
+
+        val labels = labelsAt(deepest, clickable)
+
+        if (mode == Mode.SWITCH && labels.any { Accounts.matches(it, targetKeys) }) {
+            steps.add(Step(StepType.ACCOUNT, selector(clickable ?: deepest, x, y, withLabel = false), gap(), sig))
+            return After.PASS_AND_FINISH
+        }
+
+        val isPost = mode == Mode.UPLOAD && labels.any { l -> POST_LABELS.any { it.equals(l, ignoreCase = true) } }
+        val sel = selector(labelTarget(deepest, clickable), x, y, withLabel = true)
+        steps.add(Step(if (isPost) StepType.POST else StepType.CLICK, sel, gap(), sig))
+        return if (isPost) After.PASS_AND_FINISH else After.PASS
+    }
+
+    /** Selektor pre podržanie: rovnaké pravidlá štítku ako pri ťuknutí. */
+    private fun labelSelector(root: AccessibilityNodeInfo, x: Float, y: Float): Selector {
+        val deepest = Nodes.deepestAt(root, x.toInt(), y.toInt()) ?: root
+        val clickable = Nodes.clickableAncestor(deepest)
+        return selector(labelTarget(deepest, clickable), x, y, withLabel = true)
+    }
+
+    /** Všetky štítky pod prstom (na rozpoznanie Uverejniť / účtu). */
+    private fun labelsAt(deepest: AccessibilityNodeInfo, clickable: AccessibilityNodeInfo?): List<String> {
+        val out = ArrayList<String>()
+        if (clickable != null) {
+            Nodes.ownText(clickable)?.let { out.add(it) }
+            Nodes.ownDesc(clickable)?.let { out.add(it) }
+        }
+        Nodes.ownText(deepest)?.let { out.add(it) }
+        Nodes.ownDesc(deepest)?.let { out.add(it) }
+        if (clickable != null && Nodes.bounds(clickable).height() < screen.y * SMALL_HEIGHT) {
+            Nodes.label(clickable)?.let { out.add(it) }
+        }
+        return out
+    }
+
+    /** Uzol, ktorého štítok sa uloží: najprv klikateľný predok s použiteľným textom/popisom, potom najhlbší uzol. */
+    private fun labelTarget(deepest: AccessibilityNodeInfo, clickable: AccessibilityNodeInfo?): AccessibilityNodeInfo {
+        if (clickable != null && hasUsableLabel(clickable)) return clickable
+        if (hasUsableLabel(deepest)) return deepest
+        return clickable ?: deepest
+    }
+
+    private fun hasUsableLabel(n: AccessibilityNodeInfo): Boolean =
+        (!n.isEditable && Nodes.ownText(n)?.let { usable(it) } == true) || Nodes.ownDesc(n)?.let { usable(it) } == true
+
+    /** Štítok, podľa ktorého sa dá prvok nájsť aj nabudúce: nie číslo/čas/počet, nie meno účtu, nie dlhý text. */
+    private fun usable(label: String): Boolean =
+        label.length <= 60 && !Nodes.isVolatile(label) && !Accounts.matches(label, allKeys)
+
+    /** Selektor uzla [node]; poloha = miesto ťuknutia. [withLabel] = false pri účte a poli popisu. */
+    private fun selector(node: AccessibilityNodeInfo, x: Float, y: Float, withLabel: Boolean): Selector {
+        val text = if (withLabel && !node.isEditable) Nodes.ownText(node)?.takeIf { usable(it) } else null
+        val desc = if (withLabel) Nodes.ownDesc(node)?.takeIf { usable(it) } else null
+        return Selector(
+            pkg = node.packageName?.toString() ?: "",
+            viewId = node.viewIdResourceName?.takeIf { it.isNotEmpty() },
+            text = text,
+            desc = desc,
+            cls = node.className?.toString(),
+            index = try {
+                Nodes.indexOf(node)
+            } catch (e: Exception) {
+                0
+            },
+            relX = x / screen.x,
+            relY = y / screen.y,
+        )
+    }
 
     // ------------------------------------------------------------------
-    // Udalosti
+    // Poslanie dotyku ďalej
     // ------------------------------------------------------------------
 
-    private fun onClick(event: AccessibilityEvent) {
-        val src = event.source ?: return
-        val label = Nodes.label(src)
-        val norm = label?.let { Nodes.normalize(it) }
+    private fun swipeMs(g: Caught): Long = g.durMs.coerceIn(SWIPE_MIN_MS, SWIPE_MAX_MS)
 
-        // Prilepenie / kopírovanie z plávajúcej lišty: zahodiť, nezapisovať ani nepreplachovať rozpísaný text.
-        if (norm != null && norm in TOOLBAR_LABELS) return
-
-        flushPending()
-
-        val sel = Nodes.selector(src, metrics.widthPixels, metrics.heightPixels)
-        val editable = src.isEditable
-        val type = when {
-            !editable && norm != null && accountKey.isNotEmpty() && norm.contains(accountKey) -> StepType.ACCOUNT
-            !editable && label != null && POST_LABELS.any { it.equals(label.trim(), ignoreCase = true) } -> StepType.POST
-            else -> StepType.CLICK
+    private fun pass(g: Caught) {
+        val maxX = (screen.x - 1).toFloat()
+        val maxY = (screen.y - 1).toFloat()
+        val x1 = g.x1.coerceIn(0f, maxX)
+        val y1 = g.y1.coerceIn(0f, maxY)
+        val path = Path().apply { moveTo(x1, y1) }
+        val ms = when (g.kind) {
+            Caught.Kind.TAP -> TAP_MS
+            Caught.Kind.LONG -> LONG_MS
+            Caught.Kind.SWIPE -> {
+                path.lineTo(g.x2.coerceIn(0f, maxX), g.y2.coerceIn(0f, maxY))
+                swipeMs(g)
+            }
         }
-
-        if (type == StepType.POST) addCaptionFromScreen(src)
-
-        // Text s menom ktoréhokoľvek z našich účtov (napr. hlavička profilu) pri prehrávaní nesedí -> hľadá sa bez textu.
-        val hasAccountText = type == StepType.CLICK && norm != null && allAccountKeys.any { norm.contains(it) }
-        val finalSel = if (type == StepType.ACCOUNT || hasAccountText) sel.copy(text = null, desc = null) else sel
-        steps.add(Step(type, finalSel, null, gap()))
-
-        if (type == StepType.POST) {
-            finish(save = true)
-        } else {
-            showStatus()
+        val gesture = try {
+            GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, ms))
+                .build()
+        } catch (e: Exception) {
+            return
         }
-    }
-
-    private fun onTextChanged(event: AccessibilityEvent) {
-        val src = event.source ?: return
-        if (!src.isEditable || src.isPassword) return
-        val key = "t:${src.hashCode()}"
-        val text = src.text?.toString() ?: event.text.joinToString("")
-        val now = SystemClock.uptimeMillis()
-        val p = pending[key]
-        if (p == null) {
-            val sel = Nodes.selector(src, metrics.widthPixels, metrics.heightPixels)
-            pending[key] = Pending(false, sel, text, now, now)
-        } else {
-            p.value = text
-            p.lastAt = now
-        }
-    }
-
-    private fun onRange(event: AccessibilityEvent) {
-        val src = event.source ?: return
-        val range = src.rangeInfo ?: return
-        val key = "p:${src.hashCode()}"
-        val value = range.current.toString()
-        val now = SystemClock.uptimeMillis()
-        val p = pending[key]
-        if (p == null) {
-            val sel = Nodes.selector(src, metrics.widthPixels, metrics.heightPixels)
-            pending[key] = Pending(true, sel, value, now, now)
-        } else {
-            p.value = value
-            p.lastAt = now
-        }
+        overlay.passThrough(gesture, ms)
     }
 
     // ------------------------------------------------------------------
-    // Zápis krokov
+    // Karta a koniec
     // ------------------------------------------------------------------
 
     /** Čas od predošlého kroku (0..10 s); posunie značku posledného kroku. */
@@ -169,95 +253,67 @@ class Recorder(
         return g
     }
 
-    /** Zapíše rozpísané úpravy polí/posuvníkov ako kroky (v poradí, v akom sa začali meniť). */
-    private fun flushPending() {
-        if (pending.isEmpty()) return
-        for (p in pending.values.sortedBy { it.firstAt }) {
-            val g = (p.firstAt - lastAt).coerceIn(0L, MAX_GAP_MS)
-            lastAt = p.lastAt
-            val step = when {
-                p.progress -> Step(StepType.PROGRESS, p.sel, p.value, g)
-                captionPrefix.isNotEmpty() && p.value.contains(captionPrefix) -> Step(StepType.CAPTION, p.sel, null, g)
-                else -> Step(StepType.TEXT, p.sel, p.value, g)
-            }
-            steps.add(step)
+    /** Tlačidlo Späť na karte: systémové späť, zapíše sa ako krok BACK. */
+    private fun back() {
+        if (finished) return
+        val sig = try {
+            Nodes.signature(Nodes.collect(Nodes.tiktokRoots(service)), allKeys)
+        } catch (e: Exception) {
+            emptyList()
         }
-        pending.clear()
+        steps.add(Step(StepType.BACK, Selector("", null, null, null, null, 0, 0f, 0f), gap(), sig))
+        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        note = ""
+        showStatus()
     }
-
-    /**
-     * Záloha: ak TikTok nehlásil zmeny textu, pred uverejnením skúsime nájsť na obrazovke pole,
-     * v ktorom je náš popis, a zapísať krok CAPTION.
-     */
-    private fun addCaptionFromScreen(from: AccessibilityNodeInfo) {
-        if (captionPrefix.isEmpty() || steps.any { it.type == StepType.CAPTION }) return
-        var field: AccessibilityNodeInfo? = null
-        Nodes.walk(Nodes.root(from)) { n ->
-            if (n.isEditable && n.text?.toString()?.contains(captionPrefix) == true) {
-                field = n
-                false
-            } else {
-                true
-            }
-        }
-        val f = field ?: return
-        val sel = Nodes.selector(f, metrics.widthPixels, metrics.heightPixels)
-        steps.add(Step(StepType.CAPTION, sel, null, gap()))
-    }
-
-    // ------------------------------------------------------------------
-    // Karta a koniec
-    // ------------------------------------------------------------------
 
     private fun showStatus() {
-        overlay.show(
-            "● Učím sa – krok ${steps.size + 1}",
-            OverlayButton("Hotovo") { finish(save = true) },
-            OverlayButton("Zrušiť") { finish(save = false) },
-        )
+        if (finished) return
+        val back = OverlayButton("Späť") { back() }
+        if (mode == Mode.SWITCH) {
+            overlay.show(
+                "Prepni účet na ${target?.tiktok ?: ""} – appka sa to raz naučí\n(krok ${steps.size + 1})$note",
+                back,
+                OverlayButton("Zrušiť") { finish(save = false) },
+            )
+        } else {
+            overlay.show(
+                "● Učím sa… krok ${steps.size + 1}\n+ → Upload → prvé video → Next … → ťuk do popisu → Post$note",
+                back,
+                OverlayButton("Hotovo") { finish(save = true) },
+                OverlayButton("Zrušiť") { finish(save = false) },
+            )
+        }
     }
 
-    /** Ukončí nahrávanie; [save] = uložiť postup (tlačidlo "Hotovo" alebo kliknutie na Uverejniť). */
+    /** Ukončí nahrávanie; [save] = uložiť postup (Hotovo, Uverejniť, ťuk na účet). */
     fun finish(save: Boolean) {
         if (finished) return
         finished = true
-        if (!save) {
-            overlay.show("Učenie zrušené.")
-            overlay.hideAfter(3_000)
-            onEnd()
-            return
+        overlay.hideCatcher()
+        val result = when {
+            !save -> Result.CANCELLED
+            mode == Mode.SWITCH && steps.lastOrNull()?.type != StepType.ACCOUNT -> Result.CANCELLED
+            steps.isEmpty() -> Result.EMPTY
+            else -> try {
+                if (mode == Mode.SWITCH) {
+                    Macro.saveSwitch(service, steps)
+                    Result.ACCOUNT
+                } else {
+                    Macro.save(service, steps)
+                    if (steps.last().type == StepType.POST) Result.POSTED else Result.SAVED
+                }
+            } catch (e: Exception) {
+                Result.FAILED
+            }
         }
-        flushPending()
-        if (steps.isEmpty()) {
-            overlay.show("Nič sa nenahralo, postup sa neuložil.")
-            overlay.hideAfter(5_000)
-            onEnd()
-            return
-        }
-        try {
-            Macro.save(service, steps)
-        } catch (e: Exception) {
-            overlay.show("Postup sa nepodarilo uložiť: ${e.javaClass.simpleName}: ${e.message}")
-            overlay.hideAfter(8_000)
-            onEnd()
-            return
-        }
-        Store.setDone(service, episode.key, true)
-        val noAccount = steps.none { it.type == StepType.ACCOUNT }
-        val text = "Postup uložený: ${Macro.stepsText(steps.size)}" +
-            if (noAccount) "\n" + service.getString(R.string.warn_no_account_step) else ""
-        overlay.show(text)
-        overlay.hideAfter(if (noAccount) 12_000 else 4_000)
-        if (noAccount) {
-            Toast.makeText(service.applicationContext, R.string.warn_no_account_step, Toast.LENGTH_LONG).show()
-        }
-        onEnd()
+        onEnd(result)
     }
 
-    /** Zruší nahrávanie bez uloženia (napr. pri vypnutí služby). */
+    /** Zruší nahrávanie bez uloženia (Stop, vypnutie služby); [onEnd] sa nevolá. */
     fun abort() {
         if (finished) return
         finished = true
-        overlay.hide()
+        overlay.hideCatcher()
     }
 }

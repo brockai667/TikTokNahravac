@@ -25,9 +25,9 @@ data class Channel(
     val slug: String
         get() = name.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]+"), "").ifEmpty { "kanal" }
 
-    /** Normalizovaný názov účtu na hľadanie v prepínači účtov TikToku (malé písmená, bez "@"). */
-    val accountKey: String
-        get() = (account ?: tiktok).lowercase(Locale.ROOT).trim().removePrefix("@")
+    /** Kľúče účtu na rozpoznanie v hlavičke profilu a v prepínači účtov TikToku (pozri [Accounts]). */
+    val accountKeys: List<String>
+        get() = Accounts.keys(this)
 }
 
 /** Jedna epizóda zo state.json (len také, ktoré majú video). */
