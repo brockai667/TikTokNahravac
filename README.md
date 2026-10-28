@@ -7,7 +7,8 @@ Malá Android appka (Kotlin, obyčajné Views), ktorá nahráva videá z faceles
 - Z `state.json` každého kanála (zoznam je v `app/src/main/assets/channels.json`) ukáže 3 najnovšie epizódy: názov, číslo, termín v miestnom čase a značku HOTOVO, ak si ju na tomto telefóne označil.
 - Hlavička ukazuje nájdený balík TikToku (`com.zhiliaoapp.musically`, `com.ss.android.ugc.trill` alebo `com.zhiliaoapp.musically.go`) a stav služby dostupnosti.
 - **Stiahnuť + text** – stiahne mp4 do galérie (`DCIM/TikTokNahravac/`, DCIM vidí každá galéria aj výber súborov v TikToku) a skopíruje popis do schránky. Sťahovanie si robí appka sama (bez DownloadManagera), takže čerstvé video je v galérii vždy **najnovšie**. Počas sťahovania je dialóg s percentami, na karte pri automatickom nahrávaní tiež.
-- **Posledné stiahnutie** – riadok pod tlačidlom hore: názov, veľkosť, priečinok a dĺžka, ako ich vidí galéria (po stiahnutí appka súbor pošle skeneru médií a overí záznam). Dĺžka „?“ = galéria video ešte neindexovala. Tlačidlo **Otvoriť galériu** otvorí naposledy stiahnuté video.
+  - **Obal:** spolu s videom appka do galérie uloží aj obal epizódy (`<názov>-cover.jpg`, obrázok z fabriky: Plain Sight a Suddenly Rich pri videu v tom istom vydaní, ColdCaseDaily a MindBlownDaily z vydania `thumbs`). BrainHeist obal z fabriky nemá, preto appka uloží snímku z videa v čase 1 s (JPEG, kvalita 90); tá istá snímka sa použije aj vtedy, keď sa obal z fabriky nedá stiahnuť. Obal sa ukladá vždy **pred** videom (s odstupom ~1 s), takže najnovší obrázok v galérii je obal tejto epizódy a najnovšia vec celkovo ostáva **video**.
+- **Posledné stiahnutie** – riadok pod tlačidlom hore: názov, veľkosť, priečinok a dĺžka, ako ich vidí galéria (po stiahnutí appka súbor pošle skeneru médií a overí záznam). Na konci je „obal: z fabriky“ / „obal: snímka z videa“ / „obal: žiadny“. Dĺžka „?“ = galéria video ešte neindexovala. Tlačidlo **Otvoriť galériu** otvorí naposledy stiahnuté video.
 - **Naučiť postup na tomto diele** – spustí učenie (pozri nižšie).
 - **Nahrať automaticky** – pre jeden diel prehrá naučený postup. Dlhé podržanie tlačidla = naučiť postup znova.
 - **▶ Nahrať všetko na TikTok** – jediné veľké tlačidlo úplne hore (pozri nižšie).
@@ -34,7 +35,9 @@ Služba je predvolene **vypnutá** a sama nič nerobí; kliky v TikToku nahráva
 1. Pri niektorom diele ťukni na **Naučiť postup na tomto diele** a potvrď dialóg.
 2. Appka stiahne video do galérie a skopíruje popis. Otvorí sa TikTok na domovskej stránke.
 3. **Začni na INOM účte, než na ktorý nahrávaš**, aby sa zaznamenalo aj prepnutie účtu.
-4. Rukou urob celé nahratie: prepni účet na cieľový, nahraj najnovšie video z galérie, (voliteľne pridaj zvuk a nastav hlasitosť), Ďalej, vlož popis (podržať → Vložiť), Uverejniť.
+4. Rukou urob celé nahratie: prepni účet na cieľový, nahraj najnovšie video z galérie, (voliteľne pridaj zvuk a nastav hlasitosť), Ďalej.
+   - Na obrazovke s popisom ťukni na úpravu obalu v TikToku („Upraviť obal“ / „Edit cover“ / „Select cover“), vyber pridanie obrázka z galérie, ťukni na **PRVÝ (najnovší) obrázok** – to je obal, ktorý appka práve uložila – a potvrď (Uložiť). Potom pokračuj ďalej:
+   - vlož popis (podržať → Vložiť), Uverejniť.
 5. Vľavo uprostred je malá karta „● Učím sa – krok N“ (dá sa presunúť ťahaním za text). Kliknutím na **Uverejniť** sa učenie ukončí a postup sa uloží automaticky; tlačidlom **Hotovo** ho uložíš skôr, **Zrušiť** ho zahodí.
 6. Ak postup neobsahuje prepnutie účtu, appka upozorní: pri viacerých účtoch postup nahraj znova a začni na inom účte, než na ktorý nahrávaš.
 
@@ -73,7 +76,7 @@ Vľavo je karta „▶ kanál: krok N/M“ s tlačidlom **Stop**, ktoré okamži
 
 `account` (nepovinné) = text, ktorý TikTok ukazuje v prepínači účtov; ak chýba, použije sa `tiktok` bez „@“. `format` (nepovinné, predvolene `state`) = parser stavu fabriky; neznámy formát sa v zozname ukáže ako „Nepodporovaný formát“ a preskočí sa. Nový formát = ďalšia vetva `when` v `Repo.fetchEpisodes`.
 
-`format: "drop"` = `tiktok_drop.json` z repa brockai667/tiktok-drop (`{repo: {cta, brand_hashtags, videos: [...]}}`); `dropKey` vyberie repo (napr. `coldcasedaily667`). Popis = `caption` (presný popis z fabriky, aký by išiel do Buffera); ak chýba, poskladá sa z `desc` (alebo názvu) + CTA + hashtagov + `suffix` (napr. kredit hudby CC BY). Kľúč „hotovo“ je názov súboru. `since` (nepovinné, ISO čas) skryje staršie diely – tie na TikTok ešte poslal Buffer, aby nevznikol dvojitý post.
+`format: "drop"` = `tiktok_drop.json` z repa brockai667/tiktok-drop (`{repo: {cta, brand_hashtags, videos: [...]}}`); `dropKey` vyberie repo (napr. `coldcasedaily667`). Popis = `caption` (presný popis z fabriky, aký by išiel do Buffera); ak chýba, poskladá sa z `desc` (alebo názvu) + CTA + hashtagov + `suffix` (napr. kredit hudby CC BY). Kľúč „hotovo“ je názov súboru. `cover` (nepovinné) = šablóna adresy obalu: `{video_base}` = adresa videa bez „.mp4“ (napr. `{video_base}-cover.jpg`), `{slug}` = názov súboru videa bez „.mp4“ (napr. `https://github.com/brockai667/coldcasedaily667/releases/download/thumbs/{slug}.jpg`). Bez šablóny sa obal vezme zo snímky videa. `since` (nepovinné, ISO čas) skryje staršie diely – tie na TikTok ešte poslal Buffer, aby nevznikol dvojitý post.
 
 ## Známe obmedzenia
 

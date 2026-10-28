@@ -50,7 +50,7 @@
     <string name="btn_learn">Naučiť postup na tomto diele</string>
     <string name="btn_auto">Nahrať automaticky</string>
     <string name="learn_title">Naučiť postup</string>
-    <string name="learn_text">1) Appka stiahne video a skopíruje popis.\n\n2) Otvorí sa TikTok – začni na INOM účte, než je %1$s.\n\n3) Rukou: prepni účet na %2$s, nahraj najnovšie video z galérie, (voliteľne zvuk a hlasitosť), Ďalej, vlož popis (podržať → Vložiť), Uverejniť.\n\n4) Appka si kroky zapamätá.</string>
+    <string name="learn_text">1) Appka stiahne video, uloží obal (obrázok) a skopíruje popis.\n\n2) Otvorí sa TikTok – začni na INOM účte, než je %1$s.\n\n3) Rukou: prepni účet na %2$s, nahraj najnovšie video z galérie, (voliteľne zvuk a hlasitosť), Ďalej.\n\n4) Na obrazovke s popisom ťukni na úpravu obalu („Upraviť obal“ / „Edit cover“ / „Select cover“), vyber pridanie obrázka z galérie, ťukni na PRVÝ (najnovší) obrázok – to je obal, ktorý appka práve uložila – a potvrď (Uložiť).\n\n5) Vlož popis (podržať → Vložiť), Uverejniť.\n\n6) Appka si kroky zapamätá.</string>
     <string name="learn_start">Spustiť</string>
     <string name="toast_learn_failed">Učenie sa nepodarilo spustiť (TikTok sa neotvoril alebo služba práve niečo robí).</string>
     <string name="toast_learn_downloaded">Video je v galérii (DCIM/TikTokNahravac). Otváram TikTok…</string>
