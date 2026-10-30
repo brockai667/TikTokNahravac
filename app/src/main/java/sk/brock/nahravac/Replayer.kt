@@ -66,6 +66,14 @@ class Replayer(
         // Nech sa nahrávanie v TikToku rozbehne, kým ďalší kanál TikTok znova spustí.
         private const val AFTER_POST_WAIT_MS = 20_000L
 
+        /** Po ťuku na Uverejniť: ako dlho čakať, kým obrazovka s Uverejniť zmizne, ako často pozerať, koľkokrát potvrdiť. */
+        private const val POSTED_WAIT_MS = 15_000L
+        private const val POSTED_POLL_MS = 500L
+        private const val MAX_CONFIRMS = 2
+
+        /** Potvrdenie po Uverejniť („Post video publicly?“) - na toto appka ťukne sama. */
+        private val POST_CONFIRM = listOf("Post Now", "Post anyway", "Uverejniť teraz", "Zverejniť teraz", "Publikovať teraz")
+
         /** Po koľkých ms bez zhody sa začnú zatvárať vyskakovacie okná a ako často. */
         private const val DISMISS_AFTER_MS = 4_000L
         private const val DISMISS_EVERY_MS = 3_000L
@@ -600,6 +608,18 @@ class Replayer(
             }
 
             if (step.type == StepType.POST && result == StepResult.OK) {
+                if (!confirmPosted(step)) {
+                    runLog.add("$n: uverejnenie sa nepotvrdilo")
+                    val saved = Diag.save(service, "Uverejnenie sa nepotvrdilo", name, step, n, steps, runLog)
+                    val d = ask(
+                        "Video sa asi neuverejnilo ($name) – pozri TikTok, prípadne tam ťukni Post." + diagNote(saved),
+                        "Je uverejnené" to Decision.CONFIRM,
+                        "Preskočiť" to Decision.SKIP,
+                        "Stop" to Decision.STOP,
+                    )
+                    if (d == Decision.SKIP) return Outcome.SKIPPED
+                    if (d != Decision.CONFIRM) return Outcome.STOPPED
+                }
                 overlay.show("✔ $name: uverejnené, čakám…", stopButton())
                 sleepStoppable(AFTER_POST_WAIT_MS)
                 Store.setDone(service, ep.key, true)
@@ -609,6 +629,36 @@ class Replayer(
         }
         ask("Postup skončil bez kroku Uverejniť.", "Zavrieť" to Decision.STOP)
         return Outcome.STOPPED
+    }
+
+    /**
+     * Po ťuku na Uverejniť: potvrdí okno „Post video publicly?“ ([POST_CONFIRM]) a počká, kým tlačidlo Uverejniť zmizne.
+     * False = TikTok je po [POSTED_WAIT_MS] stále na obrazovke s Uverejniť (video sa neuverejnilo).
+     */
+    private fun confirmPosted(step: Step): Boolean {
+        val size = Nodes.screenSize(service)
+        val start = SystemClock.uptimeMillis()
+        var confirms = 0
+        while (!stopped && SystemClock.uptimeMillis() - start < POSTED_WAIT_MS) {
+            sleepStoppable(POSTED_POLL_MS)
+            val nodes = try {
+                Nodes.collect(Nodes.tiktokRoots(service))
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (nodes.isEmpty()) continue
+            val confirm = Nodes.findByLabels(nodes, POST_CONFIRM)
+            if (confirm != null) {
+                if (confirms < MAX_CONFIRMS) {
+                    runLog.add("potvrdenie „${Nodes.label(confirm)}“")
+                    click(confirm)
+                    confirms++
+                }
+                continue
+            }
+            if ((findLabeled(nodes, step.sel, size.x, size.y) ?: Nodes.findByLabels(nodes, Recorder.POST_LABELS)) == null) return true
+        }
+        return false
     }
 
     /** Krok po výbere videa (obrazovka galérie) a krok v editore čakajú dlhšie. */
