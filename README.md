@@ -2,7 +2,7 @@
 
 Malá Android appka (Kotlin, obyčajné Views), ktorá nahráva videá z faceless fabrík na TikTok priamo z telefónu (natívny upload) namiesto Buffera. Appka sa **raz naučí postup nahrávania** (ty ho raz urobíš rukou) a potom ho za teba zopakuje pre každý kanál. Účet kanála v TikToku prepína sama.
 
-## Čo robí (0.4.0)
+## Čo robí (0.5.0)
 
 - Pre každý kanál z `app/src/main/assets/channels.json` (Plain Sight, Suddenly Rich, ColdCaseDaily, MindBlownDaily, BrainHeist – všetky účty sú prihlásené v jednom TikToku) načíta najnovšie diely z fabriky.
 - Jedno veľké tlačidlo **▶ Nahrať N videí na TikTok**: pre každý kanál stiahne najnovší diel (obal + video) do galérie (`DCIM/TikTokNahravac`, video je najnovšie), v TikToku prepne na správny účet a prehrá naučený postup: + → Upload → prvé video → Next → (obal) → popis → Post.
@@ -48,9 +48,9 @@ Učenie sa dá spustiť aj ručne: pri diele **Viac možností** → **Naučiť 
 
 - Pred každým krokom počká, kým obrazovka TikToku vyzerá ako pri učení (aspoň 40 % textov z „podpisu obrazovky“, najviac 15 s; po výbere videa 30 s).
 - Prvok hľadá podľa presného textu (napr. „Next“, „Post“) a ťukne do jeho stredu; ak text nemá, ťukne na zaznamenané miesto. Zahmlené ID TikToku sa nepoužívajú. Na „Your Story“ appka nikdy neťukne.
-- Pole popisu vyplní sama. Pred Post sa pýta (**Uverejniť** / **Zrušiť**), ak je zaškrtnuté **Potvrdiť pred uverejnením**, ak sa niektorý krok preskočil alebo ak popis nie je na obrazovke.
+- Pole popisu vyplní sama. Pred Post sa pýta (**Uverejniť** / **Zrušiť**) len vtedy, keď je zaškrtnuté **Potvrdiť pred uverejnením**. Ak popis nie je na obrazovke, vloží ho znova; bez popisu (kredit hudby) nikdy neuverejní.
 - **Vyskakovacie okná:** ak obrazovka dlhšie ako 4 s nesedí, appka každé ~3 s skúsi zavrieť okno tlačidlom s presným textom Not now, Nie teraz, Teraz nie, Later, Neskôr, Skip, Preskočiť, Got it, Rozumiem, Close, Zavrieť alebo Dismiss. Ak si také okno zatvoril pri učení a pri prehrávaní sa neukáže, krok sa ticho preskočí.
-- Ak sa krok nenájde, karta ponúkne **Znova** / **Preskočiť** / **Stop** a appka uloží diagnostiku. Ak sa nepodarí prepnúť účet: **Pokračovať** (prepol si ručne) / **Preskočiť kanál** / **Stop**.
+- **Bez obsluhy (od 0.5.0):** appka sa počas nahrávania nikdy nepýta. Kým beží, obrazovka nezhasne. Stratený ťuk (predošlá obrazovka svieti 8 s bez zmeny) zopakuje najviac 2×; v galérii ťukne na video až po načítaní náhľadov. Keď sa krok nenájde, uloží diagnostiku a skúsi celý kanál znova od spustenia TikToku (3 pokusy); sťahovanie skúša 3×. Účet prepína cez meno v hlavičke profilu (aj keď je prihlásený cudzí účet), až potom naučenou cestou; 2 pokusy. Kanál, ktorý nevyšiel, preskočí a na konci ho skúsi ešte raz (2. kolo). Na konci ukáže „Hotovo: N z M“ a ktoré kanály sa nepodarili.
 
 ## Stav v appke
 

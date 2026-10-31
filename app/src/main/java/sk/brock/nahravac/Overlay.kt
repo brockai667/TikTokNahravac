@@ -192,7 +192,8 @@ class Overlay(private val service: AccessibilityService) {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            // Kým karta svieti (nahrávanie beží), obrazovka nezhasne - telefón môže ležať bokom.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
