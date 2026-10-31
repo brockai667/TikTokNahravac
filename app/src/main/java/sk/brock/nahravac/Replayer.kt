@@ -8,6 +8,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
+import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
@@ -31,7 +32,8 @@ class Replayer(
 
     private enum class StepResult { OK, NOT_FOUND, FAILED }
 
-    private enum class Outcome { DONE, SKIPPED, STOPPED }
+    /** UNSURE = na Uverejniť sa ťuklo, ale potvrdenie neprišlo: kanál sa už neopakuje (inak hrozí dvojité video). */
+    private enum class Outcome { DONE, SKIPPED, STOPPED, UNSURE }
 
     /** Výsledok čakania na obrazovku: OK, AHEAD = TikTok je už na obrazovke ďalšieho kroku, TIMEOUT. */
     private enum class Screen { OK, AHEAD, TIMEOUT }
@@ -121,6 +123,8 @@ class Replayer(
 
         /** Text priebehu („45 %“): TikTok niečo spracúva, ťuk sa neopakuje. */
         private val PERCENT = Regex("\\d{1,3}\\s?%")
+        /** Texty (malými písmenami), pri ktorých TikTok ešte niečo načítava - ťuk sa vtedy neopakuje. */
+        private val BUSY_WORDS = listOf("loading", "processing", "načítava", "spracúva", "uploading")
 
         /** Meno účtu v hlavičke vlastného profilu (stred hornej lišty), ak sa nenájde ako text. */
         private const val HEADER_Y = 0.064f
@@ -210,12 +214,25 @@ class Replayer(
         var okCount = 0
         var queue = items
         val failed = ArrayList<Item>()
+        val unsure = ArrayList<Item>()
         round@ for (round in 1..2) {
             failed.clear()
             for (item in queue) {
                 if (stopped) break@round
-                when (runItem(item, confirmBeforePost)) {
+                val outcome = try {
+                    runItem(item, confirmBeforePost)
+                } catch (e: Exception) {
+                    // Chyba jedného kanála nezastaví celú frontu.
+                    Diag.save(service, "Chyba: ${e.javaClass.simpleName}: ${e.message ?: ""}", item.episode.channel.name, null, 0)
+                    when {
+                        stopped -> Outcome.STOPPED
+                        Store.isDone(service, item.episode.key) -> Outcome.UNSURE // už sa ťuklo na Uverejniť
+                        else -> Outcome.SKIPPED
+                    }
+                }
+                when (outcome) {
                     Outcome.DONE -> okCount++
+                    Outcome.UNSURE -> unsure.add(item)
                     Outcome.SKIPPED -> failed.add(item)
                     Outcome.STOPPED -> break@round
                 }
@@ -228,10 +245,12 @@ class Replayer(
             }
         }
         val names = failed.map { it.episode.channel.name }.distinct()
+        val unsureNames = unsure.map { it.episode.channel.name }.distinct()
         val head = if (stopped) "Zastavené" else "Hotovo"
-        val tail = if (names.isEmpty()) "" else "\nNepodarilo sa: ${names.joinToString()} (diagnostika uložená)"
+        val tail = (if (names.isEmpty()) "" else "\nNepodarilo sa: ${names.joinToString()} (diagnostika uložená)") +
+            (if (unsureNames.isEmpty()) "" else "\nNeoverené, pozri profil: ${unsureNames.joinToString()}")
         overlay.show("$head: $okCount z ${items.size} nahraných$tail")
-        overlay.hideAfter(if (names.isEmpty()) 6_000 else 30_000)
+        overlay.hideAfter(if (tail.isEmpty()) 6_000 else 30_000)
     }
 
     /** Jeden kanál: stiahnutie a najviac [EPISODE_ATTEMPTS] pokusov, každý od spustenia TikToku. */
@@ -242,6 +261,11 @@ class Replayer(
             ask("Postup nie je naučený.", "Zavrieť" to Decision.STOP)
             return Outcome.STOPPED
         }
+        if (item.caption.isBlank()) {
+            // Bez popisu (kredit hudby) sa nikdy neuverejňuje.
+            Diag.save(service, "Prázdny popis", ep.channel.name, null, 0)
+            return Outcome.SKIPPED
+        }
         if (!download(ep)) return if (stopped) Outcome.STOPPED else Outcome.SKIPPED
         for (attempt in 1..EPISODE_ATTEMPTS) {
             if (stopped) return Outcome.STOPPED
@@ -250,7 +274,10 @@ class Replayer(
             // Prepnutie skúša samo [SWITCH_ATTEMPTS]×; keď nezaberie, kanál ide znova až v 2. kole.
             val account = ensureAccount(ep.channel)
             if (account != Outcome.DONE) return account
-            if (!openHome()) return Outcome.STOPPED
+            if (!openHome()) {
+                if (stopped) return Outcome.STOPPED
+                continue
+            }
             val outcome = playUpload(steps, ep, item.caption, confirmBeforePost)
             if (outcome != Outcome.SKIPPED) return outcome
         }
@@ -266,6 +293,8 @@ class Replayer(
             try {
                 var lastPercent = -2 // karta sa prekreslí len pri zmene celého percenta
                 Downloads.fetchToGallery(service, ep) { percent ->
+                    // Stop preruší aj rozbehnuté sťahovanie (dočasný súbor sa zmaže, galéria ostane bez zmeny).
+                    if (stopped) throw IOException("zastavené")
                     if (percent != lastPercent) {
                         lastPercent = percent
                         if (percent >= 0 && !stopped) overlay.show("$label $percent %", stopButton())
@@ -275,6 +304,7 @@ class Replayer(
                 sleepStoppable(500)
                 return true
             } catch (e: Exception) {
+                if (stopped) return false
                 val why = e.message ?: e.javaClass.simpleName
                 if (attempt == DOWNLOAD_ATTEMPTS) {
                     Diag.save(service, "Sťahovanie zlyhalo: $why", ep.channel.name, null, 0)
@@ -382,7 +412,7 @@ class Replayer(
     private fun switchOnce(ch: Channel, keys: List<String>, handle: String, attempt: Int, log: MutableList<String>): Outcome? {
         val tag = if (attempt > 1) " (pokus $attempt/$SWITCH_ATTEMPTS)" else ""
         overlay.show("👤 ${ch.name}: kontrolujem účet…$tag", stopButton())
-        if (!openProfile()) return Outcome.STOPPED
+        if (!openProfile()) return if (stopped) Outcome.STOPPED else null
         var check = waitProfile(keys)
         if (stopped) return Outcome.STOPPED
         if (check.isTarget) return Outcome.DONE
@@ -397,7 +427,7 @@ class Replayer(
             if (tapAccountInList(keys) && verifySwitched(ch, keys)) return Outcome.DONE
             if (stopped) return Outcome.STOPPED
             log.add("$attempt: Switch account nezabralo")
-            if (!openProfile()) return Outcome.STOPPED
+            if (!openProfile()) return if (stopped) Outcome.STOPPED else null
             check = waitProfile(keys)
             if (check.isTarget) return Outcome.DONE
             current = check.current ?: current
@@ -420,7 +450,7 @@ class Replayer(
         log.add("$attempt: hlavička $tapped nezabrala")
 
         // (3) naučená cesta; učí sa len, keď ešte nie je (raz, s používateľom)
-        if (!openProfile()) return Outcome.STOPPED
+        if (!openProfile()) return if (stopped) Outcome.STOPPED else null
         if (waitProfile(keys).isTarget) return Outcome.DONE
         if (stopped) return Outcome.STOPPED
         val path = Macro.loadSwitch(service)
@@ -626,7 +656,7 @@ class Replayer(
                     showProgress(name, n, total)
                 } else if (!captionOnScreen(caption)) {
                     // Bez popisu (kredit hudby) sa neuverejňuje: vloží sa znova, inak nový pokus od začiatku.
-                    if (!refillCaption(steps, caption)) {
+                    if (!refillCaption(steps, caption) || !captionOnScreen(caption)) {
                         runLog.add("$n: popis chýba a nedá sa vložiť")
                         Diag.save(service, "Popis sa nenašiel pred Uverejniť", name, step, n, steps, runLog)
                         return if (stopped) Outcome.STOPPED else Outcome.SKIPPED
@@ -646,21 +676,28 @@ class Replayer(
             }
 
             if (step.type == StepType.POST) {
+                // Po ťuku na Uverejniť sa kanál už nikdy neopakuje (ani po Stop, ani v ďalšom pokuse či behu):
+                // pomalé uverejnenie by inak poslalo video dvakrát.
+                Store.setDone(service, ep.key, true)
                 var posted = confirmPosted(step)
                 if (!posted && !stopped) {
                     // Uverejniť stále svieti = video nie je uverejnené (inak by TikTok obrazovku zavrel) -> ešte raz.
                     runLog.add("$n: Uverejniť ešte svieti, ťukám znova")
-                    posted = act(step, ep.channel, caption) == StepResult.OK && confirmPosted(step)
+                    posted = when (act(step, ep.channel, caption)) {
+                        // tlačidlo medzitým zmizlo = TikTok už uverejňuje
+                        StepResult.NOT_FOUND -> true
+                        StepResult.OK -> confirmPosted(step)
+                        else -> false
+                    }
                 }
+                if (stopped) return Outcome.STOPPED
                 if (!posted) {
-                    if (stopped) return Outcome.STOPPED
                     runLog.add("$n: uverejnenie sa nepotvrdilo")
                     Diag.save(service, "Uverejnenie sa nepotvrdilo", name, step, n, steps, runLog)
-                    return Outcome.SKIPPED
+                    return Outcome.UNSURE
                 }
                 overlay.show("✔ $name: uverejnené, čakám…", stopButton())
                 sleepStoppable(AFTER_POST_WAIT_MS)
-                Store.setDone(service, ep.key, true)
                 return Outcome.DONE
             }
             previous = step
@@ -782,6 +819,8 @@ class Replayer(
             else -> 2
         }
         val beforeNeed = Nodes.sigNeed(before)
+        // Texty, ktoré mala len predošlá obrazovka (nie táto) - ťuk sa opakuje, len keď svietia všetky.
+        val beforeOnly = Nodes.sigNew(before, step.sig)
         val canAhead = ahead != null && ahead.sig.isNotEmpty() &&
             (step.type == StepType.CLICK || step.type == StepType.LONG || step.type == StepType.SWIPE)
         val aheadFresh = if (ahead != null && canAhead) Nodes.sigNew(ahead.sig, step.sig + seen) else emptyList()
@@ -792,8 +831,10 @@ class Replayer(
         var repeats = 0
         while (!stopped) {
             val elapsed = SystemClock.uptimeMillis() - start
+            var busy = false
             val visible = try {
                 val nodes = Nodes.collect(Nodes.tiktokRoots(service))
+                busy = nodes.any { it.isVisibleToUser && it.className?.toString()?.contains("ProgressBar") == true }
                 if (nodes.isEmpty()) null else Nodes.visibleTexts(nodes)
             } catch (e: Exception) {
                 null
@@ -810,11 +851,13 @@ class Replayer(
                 ) {
                     return Screen.AHEAD
                 }
-                // Ťuk predošlého kroku sa stratil: predošlá obrazovka celá svieti, nič nové z tohto kroku a nič sa
-                // nespracúva (percentá) -> zopakovať ([retap], najviac [MAX_REPEATS]×).
+                // Ťuk predošlého kroku sa stratil: svietia všetky texty, ktoré mala len predošlá obrazovka, nič nové
+                // z tohto kroku a nič sa nenačítava (koliesko, percentá, Loading) -> zopakovať ([retap], najviac
+                // [MAX_REPEATS]×).
                 if (retap != null && repeats < MAX_REPEATS && SystemClock.uptimeMillis() - lastTapAt >= LOST_TAP_MS &&
-                    beforeNeed > 0 && Nodes.sigOverlap(before, visible) >= beforeNeed &&
-                    Nodes.sigOverlap(fresh, visible) == 0 && visible.none { PERCENT.containsMatchIn(it) }
+                    beforeOnly.isNotEmpty() && Nodes.sigOverlap(beforeOnly, visible) == beforeOnly.size &&
+                    Nodes.sigOverlap(fresh, visible) == 0 && !busy &&
+                    visible.none { t -> PERCENT.containsMatchIn(t) || BUSY_WORDS.any { t.contains(it) } }
                 ) {
                     repeats++
                     runLog.add("opakujem ťuk predošlého kroku ($repeats×)")
