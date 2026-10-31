@@ -56,13 +56,6 @@ object Store {
             .apply()
     }
 
-    /** Pred stlačením "Uverejniť" sa pýtať na potvrdenie (predvolene nie; nový kľúč, aby sa starý uložený "áno" ignoroval). */
-    fun confirmBeforePost(ctx: Context): Boolean = prefs(ctx).getBoolean("confirm_before_post_v2", false)
-
-    fun setConfirmBeforePost(ctx: Context, value: Boolean) {
-        prefs(ctx).edit().putBoolean("confirm_before_post_v2", value).apply()
-    }
-
     /** Čas (ms), kedy používateľ požiadal o výpis stromu obrazovky; 0 = žiadna požiadavka. */
     fun dumpRequestedAt(ctx: Context): Long = prefs(ctx).getLong("dump_requested_at", 0L)
 

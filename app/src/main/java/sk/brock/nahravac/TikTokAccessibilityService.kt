@@ -106,10 +106,10 @@ class TikTokAccessibilityService : AccessibilityService() {
     }
 
     /** Stiahne a nahrá všetky položky po jednej; False, ak je služba zaneprázdnená. */
-    fun runAll(items: List<Replayer.Item>, confirmBeforePost: Boolean): Boolean {
+    fun runAll(items: List<Replayer.Item>): Boolean {
         if (isBusy()) return false
         val r = replayer ?: return false
-        return r.runAll(items, confirmBeforePost)
+        return r.runAll(items)
     }
 
     // ------------------------------------------------------------------

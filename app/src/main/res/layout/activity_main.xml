@@ -84,11 +84,6 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
-        <CheckBox
-            android:id="@+id/cbConfirm"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/cb_confirm" />
 
         <TextView
             android:id="@+id/tvMacro"

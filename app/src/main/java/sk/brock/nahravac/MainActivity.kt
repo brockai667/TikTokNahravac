@@ -17,7 +17,6 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -101,11 +100,6 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.btnDiag).setOnClickListener { shareDiagnostics() }
         btnRunAll.setOnClickListener { onRunAllClicked() }
 
-        findViewById<CheckBox>(R.id.cbConfirm).apply {
-            isChecked = Store.confirmBeforePost(this@MainActivity)
-            setOnCheckedChangeListener { _, checked -> Store.setConfirmBeforePost(this@MainActivity, checked) }
-        }
-
         // Skrytá ladiaca funkcia: dlhé podržanie hlavičky = výpis stromu obrazovky TikToku, stavu služby = zdieľať výpis.
         tvTikTok.setOnLongClickListener {
             requestDump()
@@ -144,7 +138,13 @@ class MainActivity : Activity() {
 
     private fun updateHeader() {
         val pkg = TikTokShare.installedPackage(this)
-        tvTikTok.text = if (pkg != null) getString(R.string.tiktok_pkg, pkg) else getString(R.string.tiktok_missing)
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+        } catch (e: Exception) {
+            "?"
+        }
+        val tiktok = if (pkg != null) getString(R.string.tiktok_pkg, pkg) else getString(R.string.tiktok_missing)
+        tvTikTok.text = getString(R.string.header_version, version, tiktok)
 
         val a11yOn = isAccessibilityServiceEnabled()
         tvA11y.setText(if (a11yOn) R.string.a11y_status_on else R.string.a11y_status_off)
@@ -278,10 +278,7 @@ class MainActivity : Activity() {
             return
         }
         withStorage {
-            val started = svc.runAll(
-                episodes.map { Replayer.Item(it, it.text) },
-                Store.confirmBeforePost(this),
-            )
+            val started = svc.runAll(episodes.map { Replayer.Item(it, it.text) })
             toast(getString(if (started) R.string.toast_auto_started else R.string.toast_busy), long = true)
         }
     }

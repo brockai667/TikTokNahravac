@@ -159,9 +159,9 @@ class Replayer(
     private val allKeys: List<String> by lazy { channels.flatMap { Accounts.keys(it) }.distinct() }
 
     /** Spustí frontu na pozadí. False, ak už niečo beží alebo je fronta prázdna. */
-    fun runAll(items: List<Item>, confirmBeforePost: Boolean): Boolean {
+    fun runAll(items: List<Item>): Boolean {
         if (items.isEmpty()) return false
-        return startThread { runQueue(items, confirmBeforePost) }
+        return startThread { runQueue(items) }
     }
 
     /** Učenie na epizóde [ep]: prepne účet, otvorí TikTok a nahráva dotyky. False, ak už niečo beží. */
@@ -210,7 +210,7 @@ class Replayer(
      * Bez obsluhy: appka sa nikdy nepýta. Každý kanál má [EPISODE_ATTEMPTS] pokusov; kanál, ktorý nevyšiel, sa preskočí
      * (diagnostika sa uloží) a na konci ide ešte raz (2. kolo). Zastaví ju len Stop alebo nenaučený postup.
      */
-    private fun runQueue(items: List<Item>, confirmBeforePost: Boolean) {
+    private fun runQueue(items: List<Item>) {
         var okCount = 0
         var queue = items
         val failed = ArrayList<Item>()
@@ -220,7 +220,7 @@ class Replayer(
             for (item in queue) {
                 if (stopped) break@round
                 val outcome = try {
-                    runItem(item, confirmBeforePost)
+                    runItem(item)
                 } catch (e: Exception) {
                     // Chyba jedného kanála nezastaví celú frontu.
                     Diag.save(service, "Chyba: ${e.javaClass.simpleName}: ${e.message ?: ""}", item.episode.channel.name, null, 0)
@@ -254,7 +254,7 @@ class Replayer(
     }
 
     /** Jeden kanál: stiahnutie a najviac [EPISODE_ATTEMPTS] pokusov, každý od spustenia TikToku. */
-    private fun runItem(item: Item, confirmBeforePost: Boolean): Outcome {
+    private fun runItem(item: Item): Outcome {
         val ep = item.episode
         val steps = Macro.load(service)
         if (steps.isEmpty()) {
@@ -278,7 +278,7 @@ class Replayer(
                 if (stopped) return Outcome.STOPPED
                 continue
             }
-            val outcome = playUpload(steps, ep, item.caption, confirmBeforePost)
+            val outcome = playUpload(steps, ep, item.caption)
             if (outcome != Outcome.SKIPPED) return outcome
         }
         return Outcome.SKIPPED
@@ -600,7 +600,7 @@ class Replayer(
      * Prehrá naučený postup pre epizódu (účet je už prepnutý). Bez obsluhy: krok, ktorý sa nenájde ani po zopakovaní
      * ťuku, uloží diagnostiku a vráti SKIPPED - [runItem] potom skúsi celý postup znova od spustenia TikToku.
      */
-    private fun playUpload(steps: List<Step>, ep: Episode, caption: String, confirmBeforePost: Boolean): Outcome {
+    private fun playUpload(steps: List<Step>, ep: Episode, caption: String): Outcome {
         val name = ep.channel.name
         runLog.clear()
         var previous: Step? = null
@@ -645,24 +645,14 @@ class Replayer(
             runLog.add("$n ${Macro.describe(step)}: ${screen.name}")
             var result = if (screen == Screen.OK) StepResult.OK else StepResult.NOT_FOUND
 
-            if (result == StepResult.OK && step.type == StepType.POST) {
-                if (confirmBeforePost) {
-                    val d = ask(
-                        "Skontroluj účet, video a popis ($name)",
-                        "Uverejniť" to Decision.CONFIRM,
-                        "Zrušiť" to Decision.STOP,
-                    )
-                    if (d != Decision.CONFIRM) return Outcome.STOPPED
-                    showProgress(name, n, total)
-                } else if (!captionOnScreen(caption)) {
-                    // Bez popisu (kredit hudby) sa neuverejňuje: vloží sa znova, inak nový pokus od začiatku.
-                    if (!refillCaption(steps, caption) || !captionOnScreen(caption)) {
-                        runLog.add("$n: popis chýba a nedá sa vložiť")
-                        Diag.save(service, "Popis sa nenašiel pred Uverejniť", name, step, n, steps, runLog)
-                        return if (stopped) Outcome.STOPPED else Outcome.SKIPPED
-                    }
-                    runLog.add("$n: popis vložený znova")
+            if (result == StepResult.OK && step.type == StepType.POST && !captionOnScreen(caption)) {
+                // Bez popisu (kredit hudby) sa neuverejňuje: vloží sa znova, inak nový pokus od začiatku.
+                if (!refillCaption(steps, caption) || !captionOnScreen(caption)) {
+                    runLog.add("$n: popis chýba a nedá sa vložiť")
+                    Diag.save(service, "Popis sa nenašiel pred Uverejniť", name, step, n, steps, runLog)
+                    return if (stopped) Outcome.STOPPED else Outcome.SKIPPED
                 }
+                runLog.add("$n: popis vložený znova")
             }
             if (result == StepResult.OK) {
                 result = act(step, ep.channel, caption)

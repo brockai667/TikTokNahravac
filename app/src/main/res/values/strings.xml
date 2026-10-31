@@ -23,6 +23,7 @@
     <string name="no_channels">Žiadne kanály (channels.json je prázdny).</string>
     <string name="no_episodes">Žiadne epizódy s videom.</string>
     <string name="unsupported_format">Nepodporovaný formát</string>
+    <string name="header_version">TikTok Nahrávač %1$s · %2$s</string>
     <string name="tiktok_pkg">TikTok: %1$s</string>
     <string name="tiktok_missing">TikTok sa nenašiel</string>
     <string name="a11y_status_on">Služba dostupnosti: zapnutá</string>
@@ -38,7 +39,6 @@
 
     <!-- Automatické nahrávanie -->
     <string name="auto_title">Automatické nahrávanie</string>
-    <string name="cb_confirm">Potvrdiť pred uverejnením</string>
     <string name="macro_none">Postup ešte nie je naučený</string>
     <string name="macro_count">Postup: %1$s</string>
     <string name="switch_none">Prepnutie účtu: appka ho skúsi sama (naučí sa ho, len ak bude treba)</string>
