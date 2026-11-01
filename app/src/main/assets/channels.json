@@ -39,5 +39,12 @@
     "dropKey": "MotivationFactory",
     "stateUrl": "https://raw.githubusercontent.com/brockai667/tiktok-drop/main/tiktok_drop.json",
     "suffix": "Music: Kevin MacLeod (incompetech.com) · Licensed under CC BY 4.0"
+  },
+  {
+    "name": "Curio ORBIT",
+    "tiktok": "@curio6673",
+    "stateUrl": "https://raw.githubusercontent.com/brockai667/ScienceFactory/main/orbit/tiktok.json",
+    "cover": "{video_base}-cover.jpg",
+    "since": "2026-11-01T00:00:00Z"
   }
 ]
