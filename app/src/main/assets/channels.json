@@ -1,50 +1,16 @@
 [
   {
-    "name": "Plain Sight",
-    "tiktok": "@plainsight.667",
-    "stateUrl": "https://raw.githubusercontent.com/brockai667/HistoryUntold/main/state.json",
-    "cover": "{video_base}-cover.jpg",
-    "since": "2026-10-28T12:00:00Z"
-  },
-  {
-    "name": "Suddenly Rich",
-    "tiktok": "@wealth_mindset34",
-    "stateUrl": "https://raw.githubusercontent.com/brockai667/WealthFactory/main/vote/tiktok.json",
-    "cover": "{video_base}-cover.jpg"
-  },
-  {
-    "name": "ColdCaseDaily",
-    "tiktok": "@coldcase_daily",
+    "name": "Chat Diff",
+    "tiktok": "@chatdiffclips",
     "format": "drop",
-    "dropKey": "coldcasedaily667",
-    "stateUrl": "https://raw.githubusercontent.com/brockai667/tiktok-drop/main/tiktok_drop.json",
-    "cover": "https://github.com/brockai667/coldcasedaily667/releases/download/thumbs/{slug}.jpg",
-    "suffix": "Music: Kevin MacLeod (incompetech.com) · Licensed under CC BY 4.0",
-    "since": "2026-10-27T18:00:00Z"
+    "dropKey": "chatdiff",
+    "stateUrl": "https://github.com/brockai667/clipping-media/releases/download/media/tiktok_feed.json"
   },
   {
-    "name": "MindBlownDaily",
-    "tiktok": "@min.dblowndaily",
+    "name": "Clutch Diff",
+    "tiktok": "@clutchdiff1",
     "format": "drop",
-    "dropKey": "FacelessFactory",
-    "stateUrl": "https://raw.githubusercontent.com/brockai667/tiktok-drop/main/tiktok_drop.json",
-    "cover": "https://github.com/brockai667/FacelessFactory/releases/download/thumbs/{slug}.jpg",
-    "suffix": "Music: Kevin MacLeod (incompetech.com) · Licensed under CC BY 4.0",
-    "since": "2026-10-27T18:00:00Z"
-  },
-  {
-    "name": "BrainHeist",
-    "tiktok": "@disciplinedaily667",
-    "format": "drop",
-    "dropKey": "MotivationFactory",
-    "stateUrl": "https://raw.githubusercontent.com/brockai667/tiktok-drop/main/tiktok_drop.json",
-    "suffix": "Music: Kevin MacLeod (incompetech.com) · Licensed under CC BY 4.0"
-  },
-  {
-    "name": "Curio ORBIT",
-    "tiktok": "@curio6673",
-    "stateUrl": "https://raw.githubusercontent.com/brockai667/ScienceFactory/main/orbit/tiktok.json",
-    "cover": "{video_base}-cover.jpg",
-    "since": "2026-11-01T00:00:00Z"
+    "dropKey": "clutchdiff",
+    "stateUrl": "https://github.com/brockai667/clipping-media/releases/download/media/tiktok_feed.json"
   }
 ]

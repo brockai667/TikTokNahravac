@@ -2,7 +2,7 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [clipping]
   workflow_dispatch:
 
 permissions:
@@ -32,17 +32,19 @@ jobs:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
-      # Tag 'latest' sa posunie na aktualny commit, release sa nizsie aktualizuje (APK sa nahradi).
-      - name: Move 'latest' tag
+      # Vetva clipping = verzia pre mobil Chat Diff / Clutch Diff (len tieto dva kanaly). Vlastny tag a vydanie,
+      # vydanie 'latest' z vetvy main sa nemeni.
+      - name: Move 'clip-latest' tag
         run: |
-          git tag -f latest
-          git push -f origin latest
+          git tag -f clip-latest
+          git push -f origin clip-latest
 
-      - name: Publish release 'latest'
+      - name: Publish release 'clip-latest'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: TikTok Nahrávač (latest)
-          body: Posledný debug build z vetvy main. Stiahni app-debug.apk a nainštaluj.
+          tag_name: clip-latest
+          name: TikTok Nahrávač (Chat Diff + Clutch Diff)
+          body: Build z vetvy clipping, len kanály Chat Diff a Clutch Diff. Pre mobil vyčlenený na klipy.
+          make_latest: "false"
           files: app/build/outputs/apk/debug/app-debug.apk
           prerelease: false
