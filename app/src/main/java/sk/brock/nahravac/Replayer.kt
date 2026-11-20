@@ -1802,19 +1802,24 @@ class Replayer(
 
     /** Ladenie (adb SCREEN_LOG): strom okien aplikácie [pkg] do logu, bez zásahu do obrazovky. */
     fun logTree(pkg: String) {
-        Thread {
+        Thread { logTreeNow(pkg) }.start()
+    }
+
+    private fun logTreeNow(pkg: String) {
+        run {
             val lines = ArrayList<String>()
             fun go(n: AccessibilityNodeInfo, d: Int) {
-                if (lines.size >= 150 || d > 40) return
+                if (lines.size >= 200 || d > 40) return
                 try {
                     n.refresh()
                 } catch (e: Exception) {
                 }
                 val b = Nodes.bounds(n)
-                lines.add(
+                val plain = Nodes.ownText(n) == null && Nodes.ownDesc(n) == null && n.viewIdResourceName == null && !n.isEditable && !n.isClickable
+                if (!plain) lines.add(
                     "${" ".repeat(minOf(d, 12))}${(n.className ?: "?").toString().substringAfterLast('.')} " +
                         "${n.viewIdResourceName?.substringAfterLast('/') ?: ""} t=${Nodes.ownText(n)?.take(40) ?: ""} d=${Nodes.ownDesc(n)?.take(40) ?: ""} " +
-                        "[${b.left},${b.top},${b.right},${b.bottom}] c=${n.childCount}${if (n.isEditable) " EDIT" else ""}",
+                        "[${b.left},${b.top},${b.right},${b.bottom}] c=${n.childCount}${if (n.isEditable) " EDIT" else ""}${if (n.isClickable) " CLK" else ""}",
                 )
                 for (i in 0 until n.childCount) {
                     val c = try {
@@ -1836,7 +1841,7 @@ class Replayer(
             }
             Log.i(RunAllReceiver.TAG, "tree $pkg: ${lines.size} riadkov")
             lines.chunked(12).forEach { Log.i(RunAllReceiver.TAG, "tree: " + it.joinToString(" ¦ ")) }
-        }.start()
+        }
     }
 
     private fun setNodeText(node: AccessibilityNodeInfo, text: String): Boolean {
@@ -2072,6 +2077,7 @@ class Replayer(
         }
         sleepStoppable(1_500)
         logScreen("yt Add details", YT)
+        if (dry) logTreeNow(YT)
 
         fun bail(reason: String): SubmitResult {
             logScreen("yt", YT)
@@ -2274,6 +2280,7 @@ class Replayer(
         if (pollApp(IG, 20_000L) { has(it, "New reel") } == null) return bail("obrazovka New reel sa neukázala")
         sleepStoppable(1_500)
         logScreen("ig New reel", IG)
+        if (dry) logTreeNow(IG)
 
         // Popis: editovateľný uzol; inak ťuk na pole a nový pokus.
         overlay.show("Instagram: ${ep.channel.name} – popis…", stopButton())
