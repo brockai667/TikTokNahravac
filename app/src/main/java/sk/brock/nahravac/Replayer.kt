@@ -2241,10 +2241,10 @@ class Replayer(
             back()
             return pfail("Instagram účet $user nie je v mobile prihlásený")
         }
-        tap(row)
-        sleepStoppable(3_500)
+        click(row)
+        sleepStoppable(4_000)
         val size = Nodes.screenSize(service)
-        pollApp(IG, 10_000L) { byId(it, "profile_tab") }?.let { tap(it) }
+        pollApp(IG, 10_000L) { byId(it, "profile_tab") }?.let { click(it) }
         val active = pollApp(IG, 10_000L) { nodes ->
             nodes.firstOrNull { n ->
                 onScreen(n) && Nodes.bounds(n).top < size.y * 0.2 && labels(n).any { it.trim().removePrefix("@").equals(user, ignoreCase = true) }
