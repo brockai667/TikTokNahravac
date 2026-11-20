@@ -38,6 +38,7 @@
     <string name="toast_open_gallery_failed">Otvorenie videa zlyhalo: %1$s</string>
 
     <!-- Automatické nahrávanie -->
+    <string name="auto_run_label">Nahrávať samo (každých 5 min)</string>
     <string name="auto_title">Automatické nahrávanie</string>
     <string name="macro_none">Postup ešte nie je naučený</string>
     <string name="macro_count">Postup: %1$s</string>

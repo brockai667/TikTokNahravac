@@ -41,6 +41,8 @@ class TikTokAccessibilityService : AccessibilityService() {
         /** Po tomto čase bez TikToku v popredí sa požiadavka zruší. */
         const val DUMP_TIMEOUT_MS = 120_000L
 
+        private const val AUTO_FIRST_MS = 60_000L
+        private const val AUTO_INTERVAL_MS = 5 * 60_000L
         private const val POLL_MS = 1_000L
         private const val MAX_NODES = 5_000
         private const val MAX_DEPTH = 60
@@ -50,6 +52,12 @@ class TikTokAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var tiktokSince = 0L
     private val pollRunnable = Runnable { tick() }
+    private val autoRunnable = object : Runnable {
+        override fun run() {
+            AutoRun.check(this@TikTokAccessibilityService, "timer")
+            handler.postDelayed(this, AUTO_INTERVAL_MS)
+        }
+    }
 
     private var overlay: Overlay? = null
     private var replayer: Replayer? = null
@@ -61,6 +69,8 @@ class TikTokAccessibilityService : AccessibilityService() {
         overlay = o
         replayer = Replayer(this, o)
         if (Store.dumpRequestedAt(this) > 0L) startDumpWatch()
+        handler.removeCallbacks(autoRunnable)
+        handler.postDelayed(autoRunnable, AUTO_FIRST_MS)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -82,6 +92,7 @@ class TikTokAccessibilityService : AccessibilityService() {
     private fun shutDown() {
         instance = null
         handler.removeCallbacks(pollRunnable)
+        handler.removeCallbacks(autoRunnable)
         replayer?.stop()
         replayer = null
         overlay?.destroy()

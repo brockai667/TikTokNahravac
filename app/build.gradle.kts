@@ -13,7 +13,7 @@ android {
         targetSdk = 34
         // V CI sa versionCode zvysuje podla cisla behu, aby sa APK dalo instalovat ako aktualizacia.
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
-        versionName = "0.7.0-clip"
+        versionName = "0.8.0-clip"
     }
 
     // Pevny podpisovy kluc (verejny "debug" kluc, nie tajomstvo), aby sa nove verzie instalovali ako aktualizacia.

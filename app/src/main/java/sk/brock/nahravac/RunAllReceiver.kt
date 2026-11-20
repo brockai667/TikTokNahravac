@@ -31,16 +31,7 @@ open class RunAllReceiver : BroadcastReceiver() {
         // Sieť mimo hlavného vlákna; broadcast sa skončí hneď (proces drží služba dostupnosti).
         Thread {
             try {
-                val items = ArrayList<Replayer.Item>()
-                for (ch in Repo.loadChannels(app)) {
-                    if (!Repo.isSupported(ch)) continue
-                    try {
-                        val newest = Repo.fetchEpisodes(ch, 3).firstOrNull() ?: continue
-                        if (!Store.isDone(app, newest.key)) items.add(Replayer.Item(newest, newest.text))
-                    } catch (e: Exception) {
-                        Log.w(TAG, "kanal ${ch.name}: ${e.message}")
-                    }
-                }
+                val items = AutoRun.collect(app, false)
                 if (items.isEmpty()) {
                     Log.i(TAG, "RUN_ALL: ziadny novy diel")
                 } else if (TikTokAccessibilityService.instance?.runAll(items) == true) {
@@ -60,12 +51,28 @@ class RunAllShellReceiver : RunAllReceiver() {
     companion object {
         /** Skúška odoslania do kampane: extras url, caption, account (bez @), dry (default true). */
         const val ACTION_SUBMIT_TEST = "sk.brock.nahravac.SUBMIT_TEST"
+        const val ACTION_AUTO_ON = "sk.brock.nahravac.AUTO_ON"
+        const val ACTION_AUTO_OFF = "sk.brock.nahravac.AUTO_OFF"
+        const val ACTION_AUTO_CHECK = "sk.brock.nahravac.AUTO_CHECK"
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action != ACTION_SUBMIT_TEST) {
-            super.onReceive(context, intent)
-            return
+        when (intent?.action) {
+            ACTION_AUTO_ON, ACTION_AUTO_OFF -> {
+                val on = intent?.action == ACTION_AUTO_ON
+                Store.setAutoRun(context, on)
+                Log.i(TAG, if (on) "auto: zapnute" else "auto: vypnute")
+                return
+            }
+            ACTION_AUTO_CHECK -> {
+                AutoRun.check(context, "shell")
+                return
+            }
+            ACTION_SUBMIT_TEST -> {}
+            else -> {
+                super.onReceive(context, intent)
+                return
+            }
         }
         val svc = TikTokAccessibilityService.instance
         if (svc == null) {

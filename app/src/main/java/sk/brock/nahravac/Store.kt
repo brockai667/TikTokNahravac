@@ -56,6 +56,20 @@ object Store {
             .apply()
     }
 
+    /** Samočinné nahrávanie každých 5 min (predvolene zapnuté). */
+    fun isAutoRun(ctx: Context): Boolean = prefs(ctx).getBoolean("auto_run", true)
+
+    fun setAutoRun(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean("auto_run", on).apply()
+    }
+
+    /** Koľkokrát už samočinný režim spustil diel [key] (ručné spustenia sa nepočítajú). */
+    fun autoTries(ctx: Context, key: String): Int = prefs(ctx).getInt("auto_tries_$key", 0)
+
+    fun addAutoTry(ctx: Context, key: String) {
+        prefs(ctx).edit().putInt("auto_tries_$key", autoTries(ctx, key) + 1).apply()
+    }
+
     /** Čas (ms), kedy používateľ požiadal o výpis stromu obrazovky; 0 = žiadna požiadavka. */
     fun dumpRequestedAt(ctx: Context): Long = prefs(ctx).getLong("dump_requested_at", 0L)
 

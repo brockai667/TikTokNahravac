@@ -45,6 +45,12 @@
             android:text="@string/btn_run_all"
             android:textSize="20sp" />
 
+        <CheckBox
+            android:id="@+id/cbAutoRun"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/auto_run_label" />
+
         <TextView
             android:id="@+id/tvAutoHint"
             android:layout_width="match_parent"

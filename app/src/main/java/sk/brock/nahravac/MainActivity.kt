@@ -99,6 +99,10 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.btnClearMacro).setOnClickListener { confirmClearMacro() }
         findViewById<Button>(R.id.btnDiag).setOnClickListener { shareDiagnostics() }
         btnRunAll.setOnClickListener { onRunAllClicked() }
+        findViewById<android.widget.CheckBox>(R.id.cbAutoRun).apply {
+            isChecked = Store.isAutoRun(this@MainActivity)
+            setOnCheckedChangeListener { _, on -> Store.setAutoRun(this@MainActivity, on) }
+        }
 
         // Skrytá ladiaca funkcia: dlhé podržanie hlavičky = výpis stromu obrazovky TikToku, stavu služby = zdieľať výpis.
         tvTikTok.setOnLongClickListener {
