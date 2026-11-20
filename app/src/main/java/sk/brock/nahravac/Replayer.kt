@@ -2256,7 +2256,13 @@ class Replayer(
                 break
             }
         }
-        if (!sheetGone) return pfail("Instagram: zoznam účtov sa nezatvoril po výbere $user")
+        if (!sheetGone) {
+            // Ťuk na už aktívny účet list nezatvorí: zavrie sa tlačidlom Dismiss, aktívny účet sa overí nižšie.
+            val dm = exact(appNodes(IG), "Dismiss")
+            if (dm != null) click(dm) else back()
+            sleepStoppable(2_000)
+            if (has(appNodes(IG), "Add Instagram") != null) return pfail("Instagram: zoznam účtov sa nezatvoril po výbere $user")
+        }
         val size = Nodes.screenSize(service)
         pollApp(IG, 10_000L) { byId(it, "profile_tab") }?.let { click(it) }
         sleepStoppable(2_000)
