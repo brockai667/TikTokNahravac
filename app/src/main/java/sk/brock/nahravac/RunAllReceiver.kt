@@ -55,6 +55,8 @@ class RunAllShellReceiver : RunAllReceiver() {
         const val ACTION_SUBMITS_CHECK = "sk.brock.nahravac.SUBMITS_CHECK"
         /** Skúška nahratia z mobilu: extras platform (youtube|instagram), set (chatdiff|clutchdiff), dry (default true); voliteľne url/title/caption, keď feed nemá diel. */
         const val ACTION_UPLOAD_TEST = "sk.brock.nahravac.UPLOAD_TEST"
+        /** Ladenie: strom okien balíka (extra pkg) do logu. */
+        const val ACTION_SCREEN_LOG = "sk.brock.nahravac.SCREEN_LOG"
         const val ACTION_AUTO_ON = "sk.brock.nahravac.AUTO_ON"
         const val ACTION_AUTO_OFF = "sk.brock.nahravac.AUTO_OFF"
         const val ACTION_AUTO_CHECK = "sk.brock.nahravac.AUTO_CHECK"
@@ -74,6 +76,10 @@ class RunAllShellReceiver : RunAllReceiver() {
             }
             ACTION_SUBMITS_CHECK -> {
                 AutoRun.checkSubmits(context)
+                return
+            }
+            ACTION_SCREEN_LOG -> {
+                TikTokAccessibilityService.instance?.logTree(intent?.getStringExtra("pkg") ?: "com.google.android.youtube")
                 return
             }
             ACTION_UPLOAD_TEST -> {

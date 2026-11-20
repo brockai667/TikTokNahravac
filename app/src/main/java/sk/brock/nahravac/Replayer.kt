@@ -1800,6 +1800,45 @@ class Replayer(
         plog("$tag: obrazovka (uzlov ${all.size}, okna $wins): ${seen.joinToString(" | ")}")
     }
 
+    /** Ladenie (adb SCREEN_LOG): strom okien aplikácie [pkg] do logu, bez zásahu do obrazovky. */
+    fun logTree(pkg: String) {
+        Thread {
+            val lines = ArrayList<String>()
+            fun go(n: AccessibilityNodeInfo, d: Int) {
+                if (lines.size >= 150 || d > 40) return
+                try {
+                    n.refresh()
+                } catch (e: Exception) {
+                }
+                val b = Nodes.bounds(n)
+                lines.add(
+                    "${" ".repeat(minOf(d, 12))}${(n.className ?: "?").toString().substringAfterLast('.')} " +
+                        "${n.viewIdResourceName?.substringAfterLast('/') ?: ""} t=${Nodes.ownText(n)?.take(40) ?: ""} d=${Nodes.ownDesc(n)?.take(40) ?: ""} " +
+                        "[${b.left},${b.top},${b.right},${b.bottom}] c=${n.childCount}${if (n.isEditable) " EDIT" else ""}",
+                )
+                for (i in 0 until n.childCount) {
+                    val c = try {
+                        n.getChild(i)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (c == null) {
+                        lines.add("${" ".repeat(minOf(d + 1, 12))}(child $i = null)")
+                        continue
+                    }
+                    go(c, d + 1)
+                }
+            }
+            try {
+                for (r in Nodes.packageRoots(service, pkg)) go(r, 0)
+            } catch (e: Exception) {
+                lines.add("chyba ${e.javaClass.simpleName}")
+            }
+            Log.i(RunAllReceiver.TAG, "tree $pkg: ${lines.size} riadkov")
+            lines.chunked(12).forEach { Log.i(RunAllReceiver.TAG, "tree: " + it.joinToString(" ¦ ")) }
+        }.start()
+    }
+
     private fun setNodeText(node: AccessibilityNodeInfo, text: String): Boolean {
         val b = android.os.Bundle()
         b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)

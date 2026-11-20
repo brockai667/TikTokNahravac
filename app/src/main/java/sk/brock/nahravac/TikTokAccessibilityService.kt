@@ -130,6 +130,11 @@ class TikTokAccessibilityService : AccessibilityService() {
         return r.submitTest(url, caption, account, dry, link)
     }
 
+    /** Ladenie: strom okien balíka [pkg] do logu (adb SCREEN_LOG). */
+    fun logTree(pkg: String) {
+        replayer?.logTree(pkg)
+    }
+
     /** Skúšobné nahratie dielu z mobilu na YouTube/Instagram (adb UPLOAD_TEST); False, ak je služba zaneprázdnená. */
     fun uploadTest(platform: String, set: String, dry: Boolean, url: String? = null, title: String? = null, caption: String? = null): Boolean {
         if (isBusy()) return false
