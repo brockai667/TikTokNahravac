@@ -894,7 +894,8 @@ class Replayer(
             sleepStoppable(500)
             val now = chromeNodes()
             if (now.isEmpty()) continue
-            if (now.any { txt(it)?.contains("submitted", ignoreCase = true) == true } || !hasChooseClips(now)) {
+            // len zavretie dialógu: text „submitted“ je v dialógu vždy („N posts can't be submitted“)
+            if (!hasChooseClips(now)) {
                 return SubmitResult(true, "odoslané")
             }
         }
