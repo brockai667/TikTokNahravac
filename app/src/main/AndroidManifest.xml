@@ -45,6 +45,9 @@
             android:permission="sk.brock.nahravac.permission.RUN_ALL">
             <intent-filter>
                 <action android:name="sk.brock.nahravac.RUN_ALL" />
+                <action android:name="sk.brock.nahravac.AUTO_ON" />
+                <action android:name="sk.brock.nahravac.AUTO_OFF" />
+                <action android:name="sk.brock.nahravac.AUTO_STATE" />
             </intent-filter>
         </receiver>
 

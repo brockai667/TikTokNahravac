@@ -15,9 +15,30 @@ open class RunAllReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION = "sk.brock.nahravac.RUN_ALL"
         const val TAG = "NahravacRunAll"
+        const val AUTO_ON = "sk.brock.nahravac.AUTO_ON"
+        const val AUTO_OFF = "sk.brock.nahravac.AUTO_OFF"
+        /** Pre Brock Terminal: odpoved cez usporiadany broadcast, resultData je "on" alebo "off". */
+        const val AUTO_STATE = "sk.brock.nahravac.AUTO_STATE"
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
+        when (intent?.action) {
+            AUTO_ON, AUTO_OFF -> {
+                val on = intent?.action == AUTO_ON
+                Store.setAutoRun(context, on)
+                Log.i(TAG, if (on) "auto: zapnute" else "auto: vypnute")
+                return
+            }
+            AUTO_STATE -> {
+                val on = Store.isAutoRun(context)
+                if (isOrderedBroadcast) {
+                    resultCode = android.app.Activity.RESULT_OK
+                    resultData = if (on) "on" else "off"
+                }
+                Log.i(TAG, "auto stav: " + if (on) "zapnute" else "vypnute")
+                return
+            }
+        }
         val app = context.applicationContext
         val svc = TikTokAccessibilityService.instance
         if (svc == null) {
