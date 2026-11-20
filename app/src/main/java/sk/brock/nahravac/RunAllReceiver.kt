@@ -53,7 +53,7 @@ class RunAllShellReceiver : RunAllReceiver() {
         const val ACTION_SUBMIT_TEST = "sk.brock.nahravac.SUBMIT_TEST"
         /** Okamžitá kontrola príspevkov na odoslanie do kampane (Instagram/YouTube). */
         const val ACTION_SUBMITS_CHECK = "sk.brock.nahravac.SUBMITS_CHECK"
-        /** Skúška nahratia z mobilu: extras platform (youtube|instagram), set (chatdiff|clutchdiff), dry (default true). */
+        /** Skúška nahratia z mobilu: extras platform (youtube|instagram), set (chatdiff|clutchdiff), dry (default true); voliteľne url/title/caption, keď feed nemá diel. */
         const val ACTION_UPLOAD_TEST = "sk.brock.nahravac.UPLOAD_TEST"
         const val ACTION_AUTO_ON = "sk.brock.nahravac.AUTO_ON"
         const val ACTION_AUTO_OFF = "sk.brock.nahravac.AUTO_OFF"
@@ -85,7 +85,7 @@ class RunAllShellReceiver : RunAllReceiver() {
                     Log.w(TAG, "UPLOAD_TEST ignorovane: sluzba dostupnosti nie je zapnuta")
                 } else if (platform !in PhonePosts.PLATFORMS || PhonePosts.target(set) == null) {
                     Log.w(TAG, "UPLOAD_TEST ignorovane: platform (youtube|instagram) alebo set (chatdiff|clutchdiff) nesedi")
-                } else if (svc0.uploadTest(platform, set, dry)) {
+                } else if (svc0.uploadTest(platform, set, dry, intent?.getStringExtra("url"), intent?.getStringExtra("title"), intent?.getStringExtra("caption"))) {
                     Log.i(TAG, "UPLOAD_TEST: spustene ($platform $set dry=$dry)")
                 } else {
                     Log.w(TAG, "UPLOAD_TEST: sluzba je zaneprazdnena")

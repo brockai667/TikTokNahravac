@@ -1826,10 +1826,17 @@ class Replayer(
     }
 
     /** Skúška nahratia (adb UPLOAD_TEST): najnovší diel sady, celý postup; pri [dry] sa na Upload/Share neklikne a koncept sa zahodí. */
-    fun uploadTest(platform: String, set: String, dry: Boolean): Boolean = startThread {
+    fun uploadTest(platform: String, set: String, dry: Boolean, url: String? = null, title: String? = null, caption: String? = null): Boolean = startThread {
         val ch = channels.firstOrNull { it.dropKey == set }
         val ep = try {
-            ch?.let { Repo.fetchEpisodes(it, 1).firstOrNull() }
+            if (ch != null && !url.isNullOrBlank()) {
+                // Skúška bez dielu vo feede: video zo zadanej adresy.
+                val file = Uri.parse(url).lastPathSegment ?: "test.mp4"
+                val t = title?.takeIf { it.isNotBlank() } ?: "Test clip"
+                Episode(ch, 0, file, t, caption?.takeIf { it.isNotBlank() } ?: t, url, null)
+            } else {
+                ch?.let { Repo.fetchEpisodes(it, 1).firstOrNull() }
+            }
         } catch (e: Exception) {
             null
         }
