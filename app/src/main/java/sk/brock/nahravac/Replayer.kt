@@ -393,6 +393,7 @@ class Replayer(
             } catch (e: Exception) {
                 if (stopped) return false
                 val why = e.message ?: e.javaClass.simpleName
+                Log.w(RunAllReceiver.TAG, "stahovanie ${ep.fileName} ($attempt/$DOWNLOAD_ATTEMPTS): ${e.javaClass.simpleName}: $why")
                 if (attempt == DOWNLOAD_ATTEMPTS) {
                     Diag.save(service, "Sťahovanie zlyhalo: $why", ep.channel.name, null, 0)
                     return false
@@ -1840,7 +1841,7 @@ class Replayer(
         } catch (e: Exception) {
             null
         }
-        val uri = ep?.let { phoneVideoUri(it) }
+        val uri = ep?.let { galleryUriByName(it.fileName) ?: phoneVideoUri(it) }
         val r = if (ep == null || uri == null) {
             pfail("diel sady $set sa nenašiel alebo nestiahol")
         } else {
@@ -1855,6 +1856,17 @@ class Replayer(
         overlay.show("Nahratie (skúška${if (dry) ", dry" else ""}): $platform – ${if (r.ok) "OK" else "zlyhalo"} – ${r.reason}")
         overlay.hideAfter(8_000)
         if (!stopped) goHome()
+    }
+
+    /** Skúška: video s týmto názvom, ktoré už je v galérii (ušetrí sťahovanie); inak null. */
+    private fun galleryUriByName(name: String): Uri? = try {
+        val coll = android.provider.MediaStore.Video.Media.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        service.contentResolver.query(
+            coll, arrayOf(android.provider.MediaStore.MediaColumns._ID),
+            "${android.provider.MediaStore.MediaColumns.DISPLAY_NAME} = ?", arrayOf(name), null,
+        )?.use { c -> if (c.moveToFirst()) android.content.ContentUris.withAppendedId(coll, c.getLong(0)) else null }
+    } catch (e: Exception) {
+        null
     }
 
     private fun launchApp(pkg: String): Boolean {
