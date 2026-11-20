@@ -61,6 +61,34 @@ object Nodes {
         return all
     }
 
+    /**
+     * Ako [collect], ale každý uzol sa pred čítaním obnoví (refresh). Webový obsah Chrome sa mení bez udalostí,
+     * ktoré služba odoberá, takže vyrovnávacia pamäť stromu by inak vracala starý stav (chýbali by neskôr načítané uzly).
+     */
+    fun collectFresh(roots: List<AccessibilityNodeInfo>): List<AccessibilityNodeInfo> {
+        val all = ArrayList<AccessibilityNodeInfo>()
+        fun go(node: AccessibilityNodeInfo, depth: Int) {
+            if (all.size >= MAX_NODES || depth > MAX_DEPTH) return
+            val alive = try {
+                node.refresh()
+            } catch (e: Exception) {
+                false
+            }
+            if (!alive) return
+            all.add(node)
+            for (i in 0 until node.childCount) {
+                val child = try {
+                    node.getChild(i)
+                } catch (e: Exception) {
+                    null
+                } ?: continue
+                go(child, depth + 1)
+            }
+        }
+        for (root in roots) go(root, 0)
+        return all
+    }
+
     /** Koreň okna, v ktorom je [node] (šplhá po rodičoch). */
     fun root(node: AccessibilityNodeInfo): AccessibilityNodeInfo {
         var current = node

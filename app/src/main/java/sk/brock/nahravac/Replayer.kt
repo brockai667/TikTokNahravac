@@ -715,7 +715,7 @@ class Replayer(
     private fun txt(n: AccessibilityNodeInfo): String? = Nodes.ownText(n) ?: Nodes.ownDesc(n)
 
     private fun chromeNodes(): List<AccessibilityNodeInfo> = try {
-        Nodes.collect(Nodes.chromeRoots(service))
+        Nodes.collectFresh(Nodes.chromeRoots(service))
     } catch (e: Exception) {
         emptyList()
     }
