@@ -577,7 +577,7 @@ class Replayer(
         for ((i, step) in path.withIndex()) {
             if (stopped) return false
             overlay.show("👤 ${ch.name}: prepínam účet – krok ${i + 1}/${path.size}", stopButton())
-            sleepStoppable(minOf(step.gapMs, MAX_GAP_MS))
+            sleepStoppable(gapFor(step))
             val optional = isOptional(step)
             val screenOk = awaitScreen(step, if (optional) OPTIONAL_TIMEOUT_MS else SCREEN_TIMEOUT_MS, dismiss = !optional)
             if (optional) {
@@ -611,7 +611,7 @@ class Replayer(
             if (stopped) return Outcome.STOPPED
             val n = i + 1
             showProgress(name, n, total)
-            sleepStoppable(minOf(step.gapMs, MAX_GAP_MS))
+            sleepStoppable(gapFor(step))
             if (stopped) return Outcome.STOPPED
 
             val before = previous?.sig ?: emptyList()
@@ -686,6 +686,7 @@ class Replayer(
                     Diag.save(service, "Uverejnenie sa nepotvrdilo", name, step, n, steps, runLog)
                     return Outcome.UNSURE
                 }
+                Diag.appendPosted(service, ep)
                 overlay.show("✔ $name: uverejnené, čakám…", stopButton())
                 sleepStoppable(AFTER_POST_WAIT_MS)
                 return Outcome.DONE
@@ -753,6 +754,9 @@ class Replayer(
         sleepStoppable(800)
         return !stopped
     }
+
+    /** Pauza pred krokom: naučené kroky max [MAX_GAP_MS]; krok bez podpisu obrazovky (vstavaný postup) čaká celý gapMs. */
+    private fun gapFor(step: Step): Long = if (step.sig.isEmpty()) step.gapMs else minOf(step.gapMs, MAX_GAP_MS)
 
     private fun showProgress(name: String, n: Int, total: Int) {
         overlay.show("▶ $name: krok $n/$total$note", stopButton())

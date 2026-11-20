@@ -25,6 +25,7 @@ import java.util.Locale
 object Diag {
     private const val SUBDIR = "TikTokNahravac"
     private const val MAX_NODES = 1_500
+    private const val POSTED_FILE = "posted.jsonl"
 
     /**
      * Uloží diagnostiku; true = uložená. [macro] = celý naučený postup, [log] = priebeh prehrávania.
@@ -100,6 +101,52 @@ object Diag {
         o.put("visibleNodes", arr)
         if (visible.size > MAX_NODES) o.put("truncated", visible.size)
         return o
+    }
+
+    /**
+     * Zapíše jeden JSON riadok o uverejnenej epizóde do Download/TikTokNahravac/posted.jsonl (Android 10+; na 8-9 nič).
+     * Súbor sa prečíta a prepíše aj s novým riadkom (MediaStore nezaručuje režim "append"). Chyby sa prehltnú.
+     */
+    fun appendPosted(ctx: Context, ep: Episode) {
+        if (Build.VERSION.SDK_INT < 29) return
+        try {
+            val line = JSONObject()
+                .put("episode", ep.key)
+                .put("channel", ep.channel.slug)
+                .put("title", ep.title)
+                .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date()))
+                .toString() + "\n"
+            val resolver = ctx.contentResolver
+            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            var uri: Uri? = null
+            resolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",
+                arrayOf(POSTED_FILE, "${Environment.DIRECTORY_DOWNLOADS}/$SUBDIR%"),
+                null,
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    uri = ContentUris.withAppendedId(collection, c.getLong(0))
+                }
+            }
+            val existing = uri
+            if (existing == null) {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, POSTED_FILE)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$SUBDIR/")
+                }
+                val created = resolver.insert(collection, values) ?: return
+                resolver.openOutputStream(created)?.use { it.write(line.toByteArray(Charsets.UTF_8)) }
+            } else {
+                val old = resolver.openInputStream(existing)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                val prefix = if (old.isEmpty() || old.endsWith("\n")) old else old + "\n"
+                resolver.openOutputStream(existing, "wt")?.use { it.write((prefix + line).toByteArray(Charsets.UTF_8)) }
+            }
+        } catch (e: Exception) {
+            // záznam je len pomoc
+        }
     }
 
     @Suppress("DEPRECATION")

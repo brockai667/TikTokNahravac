@@ -1,0 +1,27 @@
+{
+ "version": 2,
+ "steps": [
+  {
+   "type": "CLICK",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.27778,
+    "relY": 0.12334
+   },
+   "gapMs": 0,
+   "sig": []
+  },
+  {
+   "type": "ACCOUNT",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.0,
+    "relY": 0.0
+   },
+   "gapMs": 3000,
+   "sig": []
+  }
+ ]
+}

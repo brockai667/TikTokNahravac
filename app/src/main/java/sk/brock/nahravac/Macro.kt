@@ -62,10 +62,10 @@ object Macro {
     private fun switchFile(ctx: Context) = File(ctx.filesDir, SWITCH_FILE)
 
     /** Postup nahratia videa; chýbajúci, poškodený alebo starší súbor = prázdny zoznam. */
-    fun load(ctx: Context): List<Step> = loadFile(file(ctx))
+    fun load(ctx: Context): List<Step> = loadFile(file(ctx)).ifEmpty { loadAsset(ctx, FILE) }
 
     /** Naučené prepnutie účtu (končí krokom ACCOUNT); prázdny zoznam = nenaučené. */
-    fun loadSwitch(ctx: Context): List<Step> = loadFile(switchFile(ctx))
+    fun loadSwitch(ctx: Context): List<Step> = loadFile(switchFile(ctx)).ifEmpty { loadAsset(ctx, SWITCH_FILE) }
 
     fun save(ctx: Context, steps: List<Step>) = saveFile(file(ctx), steps)
 
@@ -80,18 +80,29 @@ object Macro {
     private fun loadFile(f: File): List<Step> {
         if (!f.isFile) return emptyList()
         return try {
-            val root = JSONObject(f.readText(Charsets.UTF_8))
-            if (root.optInt("version", 1) != VERSION) return emptyList()
-            val arr = root.optJSONArray("steps") ?: JSONArray()
-            val out = ArrayList<Step>()
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                fromJson(o)?.let { out.add(it) }
-            }
-            withoutEchoes(out)
+            parse(f.readText(Charsets.UTF_8))
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    /** Vstavaný postup z assets/ (použije sa, keď nie je naučený vlastný). */
+    private fun loadAsset(ctx: Context, name: String): List<Step> = try {
+        parse(ctx.assets.open(name).use { it.readBytes().toString(Charsets.UTF_8) })
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun parse(text: String): List<Step> {
+        val root = JSONObject(text)
+        if (root.optInt("version", 1) != VERSION) return emptyList()
+        val arr = root.optJSONArray("steps") ?: JSONArray()
+        val out = ArrayList<Step>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            fromJson(o)?.let { out.add(it) }
+        }
+        return withoutEchoes(out)
     }
 
     /**

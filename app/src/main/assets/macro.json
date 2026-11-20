@@ -1,0 +1,107 @@
+{
+ "version": 2,
+ "steps": [
+  {
+   "type": "CLICK",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.5,
+    "relY": 0.9157
+   },
+   "gapMs": 0,
+   "sig": []
+  },
+  {
+   "type": "CLICK",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.1037,
+    "relY": 0.90407
+   },
+   "gapMs": 6000,
+   "sig": []
+  },
+  {
+   "type": "CLICK",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.28333,
+    "relY": 0.15905
+   },
+   "gapMs": 5000,
+   "sig": []
+  },
+  {
+   "type": "CLICK",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.73889,
+    "relY": 0.8995,
+    "text": "Next (1)"
+   },
+   "gapMs": 3000,
+   "sig": []
+  },
+  {
+   "type": "CLICK",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.73889,
+    "relY": 0.90781,
+    "text": "Next"
+   },
+   "gapMs": 9000,
+   "sig": []
+  },
+  {
+   "type": "CLICK",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.27778,
+    "relY": 0.12458
+   },
+   "gapMs": 6000,
+   "sig": []
+  },
+  {
+   "type": "CAPTION",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.27778,
+    "relY": 0.12458
+   },
+   "gapMs": 500,
+   "sig": []
+  },
+  {
+   "type": "BACK",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.0,
+    "relY": 0.0
+   },
+   "gapMs": 500,
+   "sig": []
+  },
+  {
+   "type": "POST",
+   "sel": {
+    "pkg": "com.zhiliaoapp.musically",
+    "index": 0,
+    "relX": 0.73889,
+    "relY": 0.90116,
+    "text": "Post"
+   },
+   "gapMs": 2000,
+   "sig": []
+  }
+ ]
+}
