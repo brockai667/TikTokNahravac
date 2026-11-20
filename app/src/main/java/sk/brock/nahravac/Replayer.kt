@@ -1727,10 +1727,30 @@ class Replayer(
     /** Vlastný text a popis uzla (Compose dáva text raz do text, raz do popisu). */
     private fun labels(n: AccessibilityNodeInfo): List<String> = listOfNotNull(Nodes.ownText(n), Nodes.ownDesc(n))
 
-    private fun appNodes(pkg: String): List<AccessibilityNodeInfo> = try {
-        Nodes.collectFresh(Nodes.packageRoots(service, pkg))
-    } catch (e: Exception) {
-        emptyList()
+    /** Všetky uzly okien aplikácie; refresh je len pomoc (keď zlyhá, uzol sa aj tak prejde), aby sa podstrom nestratil. */
+    private fun appNodes(pkg: String): List<AccessibilityNodeInfo> {
+        val out = ArrayList<AccessibilityNodeInfo>()
+        fun go(n: AccessibilityNodeInfo, depth: Int) {
+            if (out.size >= 3_000 || depth > 50) return
+            try {
+                n.refresh()
+            } catch (e: Exception) {
+            }
+            out.add(n)
+            for (i in 0 until n.childCount) {
+                val c = try {
+                    n.getChild(i)
+                } catch (e: Exception) {
+                    null
+                } ?: continue
+                go(c, depth + 1)
+            }
+        }
+        try {
+            for (r in Nodes.packageRoots(service, pkg)) go(r, 0)
+        } catch (e: Exception) {
+        }
+        return out
     }
 
     private fun <T : Any> pollApp(pkg: String, timeoutMs: Long, find: (List<AccessibilityNodeInfo>) -> T?): T? {
