@@ -1762,7 +1762,8 @@ class Replayer(
     /** Prvých ~40 viditeľných textov/popisov obrazovky do logu (na dolaďovanie selektorov). */
     private fun logScreen(tag: String, pkg: String) {
         val seen = LinkedHashSet<String>()
-        for (n in appNodes(pkg)) {
+        val all = appNodes(pkg)
+        for (n in all) {
             if (!onScreen(n)) continue
             val id = n.viewIdResourceName?.substringAfterLast('/')?.let { "#$it" } ?: ""
             for (l in labels(n)) {
@@ -1771,7 +1772,12 @@ class Replayer(
             }
             if (seen.size >= 40) break
         }
-        plog("$tag: obrazovka: ${seen.joinToString(" | ")}")
+        val wins = try {
+            service.windows.joinToString(",") { w -> (w.root?.packageName?.toString() ?: "?").substringAfterLast('.') }
+        } catch (e: Exception) {
+            "?"
+        }
+        plog("$tag: obrazovka (uzlov ${all.size}, okna $wins): ${seen.joinToString(" | ")}")
     }
 
     private fun setNodeText(node: AccessibilityNodeInfo, text: String): Boolean {
