@@ -2053,8 +2053,8 @@ class Replayer(
     private fun postYoutube(ep: Episode, uri: Uri, dry: Boolean): SubmitResult {
         val t = PhonePosts.target(ep) ?: return pfail("sada nemá cieľ")
         val name = t.ytName
-        val title = ytTitle(ep.title)
-        val caption = ep.text
+        val title = ytTitle(ep.titleFor(PhonePosts.YOUTUBE))
+        val caption = ep.captionFor(PhonePosts.YOUTUBE)
         overlay.show("YouTube: ${ep.channel.name} – prepínam kanál…", stopButton())
         ytSwitchChannel(name)?.let { return it }
         if (stopped) return pfail("zastavené")
@@ -2116,13 +2116,28 @@ class Replayer(
         }
 
         // Description (nepovinné)
-        val dRow = pollScrolling(YT) { has(it, "Add description") }
+        var dRow = pollScrolling(YT) { has(it, "Add description", editable = true) }
+        if (dRow == null) {
+            // Popis býva až pod „Show more“.
+            val more = pollScrolling(YT) { exact(it, "Show more") }
+            if (more != null) {
+                tap(more)
+                sleepStoppable(1_200)
+                logScreen("yt po Show more", YT)
+                if (dry) logTreeNow(YT)
+                dRow = pollScrolling(YT) { nodes ->
+                    has(nodes, "Add description", editable = true)
+                        ?: nodes.firstOrNull { n -> onScreen(n) && labels(n).any { it.contains("description", ignoreCase = true) } && !normText(n).startsWith(titlePrefix) }
+                }
+            }
+        }
         if (dRow == null) {
             plog("yt: riadok Add description sa nenašiel, pokračujem bez popisu")
         } else {
             overlay.show("YouTube: ${ep.channel.name} – popis…", stopButton())
-            tap(dRow)
-            val ed = pollApp(YT, 8_000L) { nodes ->
+            val inline = dRow.isEditable
+            if (!inline) tap(dRow)
+            val ed = if (inline) dRow else pollApp(YT, 8_000L) { nodes ->
                 val c = nodes.filter { it.isEditable && onScreen(it) && !normText(it).startsWith(titlePrefix) }
                 c.firstOrNull { it.hintText?.toString()?.contains("description", ignoreCase = true) == true } ?: c.firstOrNull()
             }
@@ -2132,7 +2147,7 @@ class Replayer(
                 val ok = setNodeText(ed, caption)
                 sleepStoppable(500)
                 plog("yt: popis ${if (ok) "zapísaný" else "sa nezapísal"}")
-                for (i in 1..3) {
+                if (!inline) for (i in 1..3) {
                     val upNode = exact(appNodes(YT), "Navigate up")
                     if (upNode != null) tap(upNode) else back()
                     sleepStoppable(1_000)
@@ -2191,7 +2206,7 @@ class Replayer(
 
     /** Zahodí rozpracovaný reel: Back -> „Save draft?“ -> Start Again; výber z galérie sa len zruší, nič sa nevyberá. */
     private fun igDiscard() {
-        for (i in 1..5) {
+        for (i in 1..7) {
             if (stopped) return
             val nodes = appNodes(IG)
             val sa = has(nodes, "Start Again")
@@ -2210,7 +2225,7 @@ class Replayer(
                 sleepStoppable(1_000)
                 return
             }
-            if (has(nodes, "New reel") == null && has(nodes, "Save draft") == null && byId(nodes, "clips_right_action_button") == null) return
+            if (has(nodes, "New reel") == null && has(nodes, "Save draft") == null && byId(nodes, "clips_right_action_button") == null && byId(nodes, "share_button") == null) return
             back(1_200)
         }
     }
@@ -2218,7 +2233,7 @@ class Replayer(
     private fun postInstagram(ep: Episode, uri: Uri, dry: Boolean): SubmitResult {
         val t = PhonePosts.target(ep) ?: return pfail("sada nemá cieľ")
         val user = t.igUser
-        val caption = ep.text
+        val caption = ep.captionFor(PhonePosts.INSTAGRAM)
         overlay.show("Instagram: ${ep.channel.name} – kontrolujem účet…", stopButton())
         if (!launchApp(IG)) return pfail("Instagram sa nespustil")
         val tab = pollApp(IG, 30_000L) { byId(it, "profile_tab") }
@@ -2336,35 +2351,74 @@ class Replayer(
         }
         if (!capOk(appNodes(IG))) return bail("popis sa nepodarilo zapísať")
 
-        // Tvrdá kontrola pred odoslaním
+        // Hárok „Others can now download…“: jediné okno, ktoré sa smie odkliknúť (OK).
+        fun dlSheet(): Boolean {
+            val nodes = appNodes(IG)
+            if (has(nodes, "Others can now download") == null) return false
+            val ok = exact(nodes, "OK") ?: return false
+            plog("ig: hárok „Others can now download“ – ťukám OK")
+            tap(ok)
+            sleepStoppable(1_000)
+            return true
+        }
+        fun isLbl(n: AccessibilityNodeInfo, l: String) = labels(n).any { it.trim().equals(l, ignoreCase = true) }
+        fun shareBtn(nodes: List<AccessibilityNodeInfo>) =
+            nodes.firstOrNull { n -> onScreen(n) && !n.isEditable && isLbl(n, "Share") && (n.viewIdResourceName?.endsWith("share_button") == true || cls(n) == CLS_BUTTON) }
+
+        // Tvrdá kontrola pred ďalším krokom
+        dlSheet()
         var share = byId(appNodes(IG), "share_button")
         if (share == null) {
             back()
             share = pollApp(IG, 4_000L) { byId(it, "share_button") }
         }
-        if (share == null) return bail("kontrola: tlačidlo Share sa nenašlo")
+        if (share == null) return bail("kontrola: tlačidlo Share/Next sa nenašlo")
         if (!capOk(appNodes(IG))) return bail("kontrola: popis nesedí")
+        if (!share.isEnabled) return bail("kontrola: tlačidlo Share/Next je neaktívne")
+
+        if (isLbl(share, "Next")) {
+            // Na „New reel“ je len Next: skutočné Share je až na ďalšej obrazovke (popis je už overený).
+            plog("ig: tlačidlo na New reel je Next, idem ďalej")
+            overlay.show("Instagram: ${ep.channel.name} – ďalšia obrazovka…", stopButton())
+            tap(share)
+            sleepStoppable(2_000)
+            var fin: AccessibilityNodeInfo? = null
+            val t0 = SystemClock.uptimeMillis()
+            while (!stopped && SystemClock.uptimeMillis() - t0 < 15_000L) {
+                if (dlSheet()) continue
+                fin = shareBtn(appNodes(IG))
+                if (fin != null) break
+                sleepStoppable(700)
+            }
+            logScreen("ig po Next", IG)
+            if (dry) logTreeNow(IG)
+            if (fin == null) return bail("po Next sa neukázala obrazovka s tlačidlom Share")
+            if (!capOk(appNodes(IG))) plog("ig: popis na poslednej obrazovke sa nedá overiť (overený pred Next)")
+            share = fin
+        }
+        if (!isLbl(share, "Share")) return bail("kontrola: tlačidlo nie je konečné Share (${labels(share).firstOrNull()})")
         if (!share.isEnabled) return bail("kontrola: tlačidlo Share je neaktívne")
 
         if (dry) {
             plog("ig: dry – kontroly prešli")
             igDiscard()
-            return SubmitResult(true, "dry – kontroly prešli (účet $user, popis)")
+            return SubmitResult(true, "dry – kontroly prešli (účet $user, popis, Share nájdené)")
         }
 
         overlay.show("Instagram: ${ep.channel.name} – zverejňujem…", stopButton())
         tap(share)
         val start = SystemClock.uptimeMillis()
-        while (!stopped && SystemClock.uptimeMillis() - start < 30_000L) {
+        while (!stopped && SystemClock.uptimeMillis() - start < 45_000L) {
             sleepStoppable(1_000)
+            if (dlSheet()) continue
             val now = appNodes(IG)
-            if (now.isNotEmpty() && has(now, "New reel") == null) {
-                plog("ig: New reel zmizlo, počkám 20 s")
+            if (now.isNotEmpty() && has(now, "New reel") == null && byId(now, "share_button") == null && shareBtn(now) == null) {
+                plog("ig: tok zdieľania zmizol, počkám 20 s")
                 sleepStoppable(20_000)
+                dlSheet()
                 return SubmitResult(true, "nahrané")
             }
         }
-        return pfail(if (stopped) "zastavené po kliknutí na Share (výsledok neznámy)" else "New reel nezmizlo do 30 s po Share", clicked = true)
+        return pfail(if (stopped) "zastavené po kliknutí na Share (výsledok neznámy)" else "tok zdieľania nezmizol do 45 s po Share", clicked = true)
     }
 }
-

@@ -43,7 +43,15 @@ data class Episode(
     val coverUrl: String? = null,
     /** Adresa kampane na contentrewards.com (pole `campaign_url` vo formáte "drop"); null = nič sa neodosiela. */
     val campaignUrl: String? = null,
+    /** Popisy podľa platformy (pole `captions` vo feede: "instagram", "youtube"); prázdne = platí [text]. */
+    val captions: Map<String, String> = emptyMap(),
+    /** Názvy podľa platformy (pole `titles` vo feede: "youtube"); prázdne = platí [title]. */
+    val titles: Map<String, String> = emptyMap(),
 ) {
+    fun captionFor(platform: String): String = captions[platform.lowercase(Locale.ROOT)]?.takeIf { it.isNotBlank() } ?: text
+
+    fun titleFor(platform: String): String = titles[platform.lowercase(Locale.ROOT)]?.takeIf { it.isNotBlank() } ?: title
+
     /** Kľúč pre SharedPreferences (hotovo, Uri stiahnutého videa). Pri "drop" podľa súboru, lebo poradie sa mení. */
     val key: String
         get() = if (channel.format == Repo.FORMAT_DROP) "${channel.slug}#$id" else "${channel.slug}#$number"

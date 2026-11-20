@@ -135,8 +135,21 @@ object Repo {
                 due = o.createdOf(),
                 coverUrl = coverUrlOf(channel, o.str("url")!!, o.str("file")),
                 campaignUrl = o.str("campaign_url"),
+                captions = o.strMap("captions"),
+                titles = o.strMap("titles"),
             )
         }
+    }
+
+    /** Podobjekt s textovými hodnotami (kľúče malými písmenami); chýbajúce alebo iné pole = prázdna mapa. */
+    private fun JSONObject.strMap(key: String): Map<String, String> {
+        val m = optJSONObject(key) ?: return emptyMap()
+        val out = HashMap<String, String>()
+        for (k in m.keys()) {
+            val v = m.optString(k, "").trim()
+            if (v.isNotEmpty()) out[k.lowercase(Locale.ROOT)] = v
+        }
+        return out
     }
 
     private fun JSONObject.createdOf(): String? = str("created_at") ?: str("created")
