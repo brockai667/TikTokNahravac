@@ -251,6 +251,11 @@ class Replayer(
             (if (unsureNames.isEmpty()) "" else "\nNeoverené, pozri profil: ${unsureNames.joinToString()}")
         overlay.show("$head: $okCount z ${items.size} nahraných$tail")
         overlay.hideAfter(if (tail.isEmpty()) 6_000 else 30_000)
+        if (!stopped) {
+            // Koniec celého behu: po Post chvíľu počkať a domček, nech v TikToku nebeží video (upload ide na pozadí).
+            sleepStoppable(4_000)
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        }
     }
 
     /** Jeden kanál: stiahnutie a najviac [EPISODE_ATTEMPTS] pokusov, každý od spustenia TikToku. */
