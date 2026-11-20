@@ -2077,7 +2077,6 @@ class Replayer(
         }
         sleepStoppable(1_500)
         logScreen("yt Add details", YT)
-        if (dry) logTreeNow(YT)
 
         fun bail(reason: String): SubmitResult {
             logScreen("yt", YT)
@@ -2117,7 +2116,7 @@ class Replayer(
         }
 
         // Description (nepovinné)
-        val dRow = has(appNodes(YT), "Add description")
+        val dRow = pollScrolling(YT) { has(it, "Add description") }
         if (dRow == null) {
             plog("yt: riadok Add description sa nenašiel, pokračujem bez popisu")
         } else {
@@ -2147,6 +2146,7 @@ class Replayer(
         sleepStoppable(500)
         var fin = appNodes(YT)
         logScreen("yt pred odoslaním", YT)
+        if (dry) logTreeNow(YT)
         if (!titleOk(fin)) return bail("kontrola: názov nesedí")
         if (!audience || has(fin, "Select audience") != null) return bail("kontrola: Audience nie je nastavené")
         val badVis = fin.firstOrNull { n ->
