@@ -49,8 +49,10 @@ open class RunAllReceiver : BroadcastReceiver() {
 /** To isté pre `adb shell am broadcast -n ...` (shell má povolenie DUMP, nie naše signature povolenie). */
 class RunAllShellReceiver : RunAllReceiver() {
     companion object {
-        /** Skúška odoslania do kampane: extras url, caption, account (bez @), dry (default true). */
+        /** Skúška odoslania do kampane: extras url, caption, account (bez @), dry (default true), link (YouTube Short; potom netreba caption). */
         const val ACTION_SUBMIT_TEST = "sk.brock.nahravac.SUBMIT_TEST"
+        /** Okamžitá kontrola príspevkov na odoslanie do kampane (Instagram/YouTube). */
+        const val ACTION_SUBMITS_CHECK = "sk.brock.nahravac.SUBMITS_CHECK"
         const val ACTION_AUTO_ON = "sk.brock.nahravac.AUTO_ON"
         const val ACTION_AUTO_OFF = "sk.brock.nahravac.AUTO_OFF"
         const val ACTION_AUTO_CHECK = "sk.brock.nahravac.AUTO_CHECK"
@@ -68,6 +70,10 @@ class RunAllShellReceiver : RunAllReceiver() {
                 AutoRun.check(context, "shell")
                 return
             }
+            ACTION_SUBMITS_CHECK -> {
+                AutoRun.checkSubmits(context)
+                return
+            }
             ACTION_SUBMIT_TEST -> {}
             else -> {
                 super.onReceive(context, intent)
@@ -83,11 +89,12 @@ class RunAllShellReceiver : RunAllReceiver() {
         val caption = intent.getStringExtra("caption") ?: ""
         val account = intent.getStringExtra("account") ?: ""
         val dry = intent.getBooleanExtra("dry", true)
-        if (url.isBlank() || caption.isBlank() || account.isBlank()) {
-            Log.w(TAG, "SUBMIT_TEST ignorovane: chyba url, caption alebo account")
+        val link = intent.getStringExtra("link")?.trim()?.ifEmpty { null }
+        if (url.isBlank() || account.isBlank() || (link == null && caption.isBlank())) {
+            Log.w(TAG, "SUBMIT_TEST ignorovane: chyba url, account alebo caption (pri link netreba caption)")
             return
         }
-        if (svc.submitTest(url, caption, account, dry)) {
+        if (svc.submitTest(url, caption, account, dry, link)) {
             Log.i(TAG, "SUBMIT_TEST: spustene (dry=$dry)")
         } else {
             Log.w(TAG, "SUBMIT_TEST: sluzba je zaneprazdnena")

@@ -183,6 +183,62 @@ object Repo {
         return list.filter { afterSince(channel, it.due) }.sortedByDescending { it.number }.take(limit)
     }
 
+    /** Zoznam `submits` z feedov všetkých "drop" kanálov (kľúč môže chýbať; chyba jedného feedu nezhodí ostatné). */
+    fun fetchSubmits(ctx: Context): List<Submit> {
+        val out = LinkedHashMap<String, Submit>()
+        val urls = loadChannels(ctx).filter { isSupported(it) && it.format == FORMAT_DROP }.map { it.stateUrl }.distinct()
+        for (u in urls) {
+            try {
+                val arr = JSONObject(httpGet(u)).optJSONArray("submits") ?: continue
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val id = o.str("id") ?: continue
+                    val platform = o.str("platform")?.lowercase(Locale.ROOT) ?: continue
+                    val camp = o.str("campaign_url") ?: continue
+                    out[id] = Submit(
+                        id = id, platform = platform, account = o.str("account") ?: "",
+                        caption = o.str("caption") ?: "", title = o.str("title"),
+                        dueAt = instantOf(o.str("due")), campaignUrl = camp, ytChannelId = o.str("yt_channel_id"),
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("NahravacRunAll", "submits: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+        return out.values.toList()
+    }
+
+    /**
+     * Odkaz na YouTube Short z verejného RSS kanála: záznam, ktorého názov (po normalizácii medzier) začína prvými
+     * 40 znakmi [wanted] a ktorý je publikovaný najviac 45 min dozadu. Nenájdené = null. Volať mimo hlavného vlákna.
+     */
+    fun findYoutubeShort(channelId: String, wanted: String): String? {
+        val ws = Regex("[\\s\\u00A0]+")
+        var prefix = wanted.replace(ws, " ").trim().take(40)
+        if (prefix.isNotEmpty() && prefix.last().isHighSurrogate()) prefix = prefix.dropLast(1)
+        if (prefix.isEmpty()) return null
+        val body = httpGet("https://www.youtube.com/feeds/videos.xml?channel_id=" + java.net.URLEncoder.encode(channelId, "UTF-8"))
+        val f = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+        try {
+            f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        } catch (e: Exception) {
+        }
+        val doc = f.newDocumentBuilder().parse(org.xml.sax.InputSource(java.io.StringReader(body)))
+        val entries = doc.getElementsByTagName("entry")
+        val now = Instant.now()
+        for (i in 0 until entries.length) {
+            val e = entries.item(i) as? org.w3c.dom.Element ?: continue
+            fun child(tag: String) = e.getElementsByTagName(tag).item(0)?.textContent?.trim()
+            val title = child("title")?.replace(ws, " ")?.trim() ?: continue
+            val pub = instantOf(child("published")) ?: continue
+            val videoId = child("yt:videoId")?.takeIf { Regex("[A-Za-z0-9_-]{6,20}").matches(it) } ?: continue
+            if (!title.startsWith(prefix)) continue
+            if (pub.isBefore(now.minusSeconds(45 * 60L))) continue
+            return "https://www.youtube.com/shorts/$videoId"
+        }
+        return null
+    }
+
     private fun httpGet(url: String): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {

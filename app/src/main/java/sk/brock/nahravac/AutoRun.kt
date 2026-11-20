@@ -59,7 +59,15 @@ object AutoRun {
                 val items = collect(app, true)
                 val svc = TikTokAccessibilityService.instance
                 if (items.isEmpty()) {
-                    note("ziadny novy diel")
+                    val subs = dueSubmits(app)
+                    if (subs.isEmpty()) {
+                        note("ziadny novy diel")
+                    } else if (svc?.runSubmits(subs) == true) {
+                        Log.i(TAG, "auto: kampane (${subs.size})")
+                        lastState = "kampane"
+                    } else {
+                        note("preskocene – sluzba je zaneprazdnena")
+                    }
                 } else if (svc?.runAll(items) == true) {
                     for (item in items) Store.addAutoTry(app, item.episode.key)
                     Log.i(TAG, "auto: spustene (${items.size})")
@@ -71,6 +79,43 @@ object AutoRun {
                 Log.w(TAG, "auto: zlyhalo: ${e.javaClass.simpleName}: ${e.message}")
             } finally {
                 checking.set(false)
+            }
+        }.start()
+    }
+
+    /** Najviac toľko pokusov na odoslanie jedného Instagram/YouTube príspevku do kampane. */
+    const val MAX_SUBMIT_TRIES = 6
+
+    /** Nehotové príspevky s < [MAX_SUBMIT_TRIES] pokusmi, ktorých okno (due + 2 min až due + 28 min) práve beží, podľa due. Volať mimo hlavného vlákna. */
+    fun dueSubmits(app: Context): List<Submit> {
+        val now = java.time.Instant.now()
+        return Repo.fetchSubmits(app).filter { s ->
+            val due = s.dueAt ?: return@filter false
+            !Store.isSubmitDone(app, s.id) && Store.submitTries(app, s.id) < MAX_SUBMIT_TRIES &&
+                !now.isBefore(due.plusSeconds(2 * 60L)) && !now.isAfter(due.plusSeconds(28 * 60L))
+        }.sortedBy { it.dueAt }
+    }
+
+    /** Okamžitá kontrola len príspevkov na odoslanie do kampane (adb SUBMITS_CHECK, na testovanie). */
+    fun checkSubmits(context: Context) {
+        val app = context.applicationContext
+        val reason = skipReason(app)
+        if (reason != null) {
+            Log.i(TAG, "auto: kampane preskocene – $reason")
+            return
+        }
+        Thread {
+            try {
+                val subs = dueSubmits(app)
+                if (subs.isEmpty()) {
+                    Log.i(TAG, "auto: kampane (0)")
+                } else if (TikTokAccessibilityService.instance?.runSubmits(subs) == true) {
+                    Log.i(TAG, "auto: kampane (${subs.size})")
+                } else {
+                    Log.w(TAG, "auto: kampane preskocene – sluzba je zaneprazdnena")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "auto: kampane zlyhalo: ${e.javaClass.simpleName}: ${e.message}")
             }
         }.start()
     }

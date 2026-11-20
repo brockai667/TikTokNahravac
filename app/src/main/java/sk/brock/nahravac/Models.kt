@@ -59,3 +59,15 @@ data class Episode(
             return "${channel.slug}_$withExt"
         }
 }
+
+/** Príspevok z Instagramu/YouTube (vyšiel cez Buffer), ktorý sa má odoslať do kampane Content Rewards (kľúč `submits` vo feede). */
+data class Submit(
+    val id: String,
+    val platform: String,
+    val account: String,
+    val caption: String,
+    val title: String?,
+    val dueAt: java.time.Instant?,
+    val campaignUrl: String,
+    val ytChannelId: String?,
+)

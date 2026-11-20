@@ -124,10 +124,17 @@ class TikTokAccessibilityService : AccessibilityService() {
     }
 
     /** Skúšobné odoslanie do kampane (len postup Content Rewards v Chrome); False, ak je služba zaneprázdnená. */
-    fun submitTest(url: String, caption: String, account: String, dry: Boolean): Boolean {
+    fun submitTest(url: String, caption: String, account: String, dry: Boolean, link: String? = null): Boolean {
         if (isBusy()) return false
         val r = replayer ?: return false
-        return r.submitTest(url, caption, account, dry)
+        return r.submitTest(url, caption, account, dry, link)
+    }
+
+    /** Odošle Instagram/YouTube príspevky do kampaní; False, ak je služba zaneprázdnená. */
+    fun runSubmits(subs: List<Submit>): Boolean {
+        if (isBusy()) return false
+        val r = replayer ?: return false
+        return r.runSubmits(subs)
     }
 
     // ------------------------------------------------------------------

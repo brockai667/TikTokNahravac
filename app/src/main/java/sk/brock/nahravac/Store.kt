@@ -70,6 +70,19 @@ object Store {
         prefs(ctx).edit().putInt("auto_tries_$key", autoTries(ctx, key) + 1).apply()
     }
 
+    /** Odoslanie Instagram/YouTube príspevku do kampane: hotovo a počet pokusov (pozri [AutoRun.dueSubmits]). */
+    fun isSubmitDone(ctx: Context, id: String): Boolean = prefs(ctx).getBoolean("submit_done_$id", false)
+
+    fun setSubmitDone(ctx: Context, id: String) {
+        prefs(ctx).edit().putBoolean("submit_done_$id", true).apply()
+    }
+
+    fun submitTries(ctx: Context, id: String): Int = prefs(ctx).getInt("submit_tries_$id", 0)
+
+    fun setSubmitTries(ctx: Context, id: String, n: Int) {
+        prefs(ctx).edit().putInt("submit_tries_$id", n).apply()
+    }
+
     /** Čas (ms), kedy používateľ požiadal o výpis stromu obrazovky; 0 = žiadna požiadavka. */
     fun dumpRequestedAt(ctx: Context): Long = prefs(ctx).getLong("dump_requested_at", 0L)
 

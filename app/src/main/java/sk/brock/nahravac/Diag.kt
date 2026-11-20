@@ -124,7 +124,7 @@ object Diag {
     }
 
     /** Výsledok odoslania príspevku do kampane Content Rewards: riadok do Download/TikTokNahravac/submitted.jsonl. */
-    fun appendSubmitted(ctx: Context, episode: String, channel: String, campaignUrl: String, ok: Boolean, reason: String, dry: Boolean) {
+    fun appendSubmitted(ctx: Context, episode: String, channel: String, campaignUrl: String, ok: Boolean, reason: String, dry: Boolean, id: String? = null, platform: String? = null, link: String? = null) {
         try {
             val o = JSONObject()
                 .put("episode", episode)
@@ -134,6 +134,9 @@ object Diag {
                 .put("reason", reason)
                 .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date()))
             if (dry) o.put("dry", true)
+            if (id != null) o.put("id", id)
+            if (platform != null) o.put("platform", platform).put("account", channel)
+            if (link != null) o.put("link", link)
             appendLine(ctx, SUBMITTED_FILE, o.toString() + "\n")
         } catch (e: Exception) {
             // záznam je len pomoc
