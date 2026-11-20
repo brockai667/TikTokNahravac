@@ -2276,8 +2276,17 @@ class Replayer(
 
         val next = pollApp(IG, 30_000L) { byId(it, "clips_right_action_button") } ?: return bail("editor reelu sa neukázal")
         sleepStoppable(1_000)
-        tap(next)
-        if (pollApp(IG, 20_000L) { has(it, "New reel") } == null) return bail("obrazovka New reel sa neukázala")
+        var reel = false
+        for (attempt in 1..3) {
+            // Instagram prijme ACTION_CLICK bez účinku, preto gesto; po neúspechu znova s čerstvým uzlom.
+            val nx = byId(appNodes(IG), "clips_right_action_button") ?: next
+            if (attempt == 2) tap(nx) else click(nx)
+            if (pollApp(IG, 8_000L) { has(it, "New reel") } != null) {
+                reel = true
+                break
+            }
+        }
+        if (!reel) return bail("obrazovka New reel sa neukázala")
         sleepStoppable(1_500)
         logScreen("ig New reel", IG)
         if (dry) logTreeNow(IG)
