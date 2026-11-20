@@ -83,6 +83,26 @@ object Store {
         prefs(ctx).edit().putInt("submit_tries_$id", n).apply()
     }
 
+    /** Nahratie dielu z mobilu na YouTube/Instagram (kľúč pozri [PhonePosts.key]): hotovo a počet pokusov. */
+    fun isPostDone(ctx: Context, key: String): Boolean = prefs(ctx).getBoolean("post_done_$key", false)
+
+    fun setPostDone(ctx: Context, key: String) {
+        prefs(ctx).edit().putBoolean("post_done_$key", true).apply()
+    }
+
+    fun postTries(ctx: Context, key: String): Int = prefs(ctx).getInt("post_tries_$key", 0)
+
+    fun addPostTry(ctx: Context, key: String) {
+        prefs(ctx).edit().putInt("post_tries_$key", postTries(ctx, key) + 1).apply()
+    }
+
+    /** Lokálne založené odoslania do kampane po nahratí z mobilu (JSON pole, pozri [PhonePosts.addLocalSubmit]). */
+    fun getLocalSubmits(ctx: Context): String = prefs(ctx).getString("local_submits", "[]") ?: "[]"
+
+    fun setLocalSubmits(ctx: Context, json: String) {
+        prefs(ctx).edit().putString("local_submits", json).apply()
+    }
+
     /** Čas (ms), kedy používateľ požiadal o výpis stromu obrazovky; 0 = žiadna požiadavka. */
     fun dumpRequestedAt(ctx: Context): Long = prefs(ctx).getLong("dump_requested_at", 0L)
 

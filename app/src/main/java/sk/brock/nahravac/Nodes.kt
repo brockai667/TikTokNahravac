@@ -173,6 +173,29 @@ object Nodes {
         return out
     }
 
+    /** Korene všetkých okien balíka [pkg] (YouTube, Instagram); ak okná nie sú k dispozícii, aktívne okno (ak je z [pkg]). */
+    fun packageRoots(service: AccessibilityService, pkg: String): List<AccessibilityNodeInfo> {
+        val out = ArrayList<AccessibilityNodeInfo>()
+        val wins = windowsOf(service)
+        for (w in wins) {
+            val root = try {
+                w.root
+            } catch (e: Exception) {
+                null
+            } ?: continue
+            if (root.packageName?.toString() == pkg) out.add(root)
+        }
+        if (out.isEmpty() && wins.isEmpty()) {
+            val active = try {
+                service.rootInActiveWindow
+            } catch (e: Exception) {
+                null
+            }
+            if (active?.packageName?.toString() == pkg) out.add(active)
+        }
+        return out
+    }
+
     /** Je bod [x],[y] v okne klávesnice? */
     fun isInIme(service: AccessibilityService, x: Float, y: Float): Boolean {
         val r = Rect()

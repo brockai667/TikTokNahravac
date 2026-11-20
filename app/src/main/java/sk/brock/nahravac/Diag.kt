@@ -123,6 +123,24 @@ object Diag {
         }
     }
 
+    /** Výsledok nahratia dielu z mobilu na YouTube/Instagram: riadok s poľom `platform` do posted.jsonl (dry = skúška bez zverejnenia). */
+    fun appendPhonePost(ctx: Context, ep: Episode, platform: String, ok: Boolean, reason: String, dry: Boolean) {
+        try {
+            val o = JSONObject()
+                .put("episode", ep.key)
+                .put("channel", ep.channel.slug)
+                .put("title", ep.title)
+                .put("platform", platform)
+                .put("ok", ok)
+                .put("reason", reason)
+                .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date()))
+            if (dry) o.put("dry", true)
+            appendLine(ctx, POSTED_FILE, o.toString() + "\n")
+        } catch (e: Exception) {
+            // záznam je len pomoc
+        }
+    }
+
     /** Výsledok odoslania príspevku do kampane Content Rewards: riadok do Download/TikTokNahravac/submitted.jsonl. */
     fun appendSubmitted(ctx: Context, episode: String, channel: String, campaignUrl: String, ok: Boolean, reason: String, dry: Boolean, id: String? = null, platform: String? = null, link: String? = null) {
         try {

@@ -21,11 +21,20 @@ object AutoRun {
     /** Najnovší nehotový diel každého kanála; pri [auto] sa vynechajú diely, ktoré už mali [MAX_TRIES] samočinné pokusy. */
     fun collect(app: Context, auto: Boolean): List<Replayer.Item> {
         val items = ArrayList<Replayer.Item>()
+        // Kľúč phone_posts: diel, ktorý je už na TikToku, sa donahrá na chýbajúce platformy (YouTube/Instagram).
+        val phone = try {
+            Repo.fetchPhonePosts(app)
+        } catch (e: Exception) {
+            emptySet()
+        }
         for (ch in Repo.loadChannels(app)) {
             if (!Repo.isSupported(ch)) continue
             try {
                 val newest = Repo.fetchEpisodes(ch, 3).firstOrNull() ?: continue
-                if (Store.isDone(app, newest.key)) continue
+                if (Store.isDone(app, newest.key)) {
+                    if (PhonePosts.pending(app, newest, phone).isNotEmpty()) items.add(Replayer.Item(newest, newest.text, phoneOnly = true))
+                    continue
+                }
                 if (auto && Store.autoTries(app, newest.key) >= MAX_TRIES) continue
                 items.add(Replayer.Item(newest, newest.text))
             } catch (e: Exception) {
@@ -89,7 +98,9 @@ object AutoRun {
     /** Nehotové príspevky s < [MAX_SUBMIT_TRIES] pokusmi, ktorých okno (due + 2 min až due + 28 min) práve beží, podľa due. Volať mimo hlavného vlákna. */
     fun dueSubmits(app: Context): List<Submit> {
         val now = java.time.Instant.now()
-        return Repo.fetchSubmits(app).filter { s ->
+        val feed = Repo.fetchSubmits(app)
+        val ids = feed.map { it.id }.toSet()
+        return (feed + PhonePosts.localSubmits(app).filter { it.id !in ids }).filter { s ->
             val due = s.dueAt ?: return@filter false
             !Store.isSubmitDone(app, s.id) && Store.submitTries(app, s.id) < MAX_SUBMIT_TRIES &&
                 !now.isBefore(due.plusSeconds(2 * 60L)) && !now.isAfter(due.plusSeconds(28 * 60L))

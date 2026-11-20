@@ -29,7 +29,7 @@ class Replayer(
     private val overlay: Overlay,
 ) {
     /** Jedna položka fronty: epizóda a popis, ktorý sa vloží. */
-    class Item(val episode: Episode, val caption: String)
+    class Item(val episode: Episode, val caption: String, val phoneOnly: Boolean = false)
 
     private enum class Decision { RETRY, SKIP, STOP, CONFIRM }
 
@@ -235,11 +235,16 @@ class Replayer(
         val failed = ArrayList<Item>()
         val unsure = ArrayList<Item>()
         val forCampaign = ArrayList<Item>()
+        val phone = try {
+            Repo.fetchPhonePosts(service)
+        } catch (e: Exception) {
+            emptySet()
+        }
         round@ for (round in 1..2) {
             failed.clear()
             for (item in queue) {
                 if (stopped) break@round
-                val outcome = try {
+                val outcome = if (item.phoneOnly) Outcome.DONE else try {
                     runItem(item)
                 } catch (e: Exception) {
                     // Chyba jedného kanála nezastaví celú frontu.
@@ -253,12 +258,14 @@ class Replayer(
                 when (outcome) {
                     Outcome.DONE -> {
                         okCount++
-                        if (!item.episode.campaignUrl.isNullOrBlank()) forCampaign.add(item)
+                        if (!item.phoneOnly && !item.episode.campaignUrl.isNullOrBlank()) forCampaign.add(item)
                     }
                     Outcome.UNSURE -> unsure.add(item)
                     Outcome.SKIPPED -> failed.add(item)
                     Outcome.STOPPED -> break@round
                 }
+                // Potom ten istý diel z mobilu na YouTube a Instagram (len v 1. kole; každá platforma si pamätá svoj stav).
+                if (round == 1 && phone.isNotEmpty() && !stopped) runPhonePosts(item, phone)
             }
             if (failed.isEmpty()) break
             queue = ArrayList(failed)
@@ -1698,4 +1705,546 @@ class Replayer(
             left -= slice
         }
     }
+
+    // ------------------------------------------------------------------
+    // Nahratie z mobilu: YouTube (Short) a Instagram (Reel); zapína ho kľúč phone_posts vo feede
+    // ------------------------------------------------------------------
+
+    private val YT = "com.google.android.youtube"
+    private val IG = "com.instagram.android"
+    private val CLS_EDITTEXT = "android.widget.EditText"
+
+    private fun plog(msg: String) {
+        Log.i(RunAllReceiver.TAG, "phone: $msg")
+    }
+
+    private fun pfail(reason: String, clicked: Boolean = false): SubmitResult {
+        plog("zlyhalo: $reason")
+        return SubmitResult(false, reason, false, clicked)
+    }
+
+    /** Vlastný text a popis uzla (Compose dáva text raz do text, raz do popisu). */
+    private fun labels(n: AccessibilityNodeInfo): List<String> = listOfNotNull(Nodes.ownText(n), Nodes.ownDesc(n))
+
+    private fun appNodes(pkg: String): List<AccessibilityNodeInfo> = try {
+        Nodes.collectFresh(Nodes.packageRoots(service, pkg))
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun <T : Any> pollApp(pkg: String, timeoutMs: Long, find: (List<AccessibilityNodeInfo>) -> T?): T? {
+        val start = SystemClock.uptimeMillis()
+        while (!stopped) {
+            val r = try {
+                find(appNodes(pkg))
+            } catch (e: Exception) {
+                null
+            }
+            if (r != null) return r
+            if (SystemClock.uptimeMillis() - start >= timeoutMs) return null
+            sleepStoppable(POLL_MS)
+        }
+        return null
+    }
+
+    /** Prvý viditeľný uzol, ktorého text alebo popis obsahuje [s] (bez ohľadu na veľkosť písmen); [editable] = aj editovateľné. */
+    private fun has(nodes: List<AccessibilityNodeInfo>, s: String, editable: Boolean = false): AccessibilityNodeInfo? =
+        nodes.firstOrNull { n -> (editable || !n.isEditable) && onScreen(n) && labels(n).any { it.contains(s, ignoreCase = true) } }
+
+    /** Prvý viditeľný uzol, ktorého text alebo popis sa presne rovná [s] (bez ohľadu na veľkosť písmen). */
+    private fun exact(nodes: List<AccessibilityNodeInfo>, s: String): AccessibilityNodeInfo? =
+        nodes.firstOrNull { n -> onScreen(n) && labels(n).any { it.trim().equals(s, ignoreCase = true) } }
+
+    private fun byId(nodes: List<AccessibilityNodeInfo>, suffix: String): AccessibilityNodeInfo? =
+        nodes.firstOrNull { it.viewIdResourceName?.endsWith(suffix) == true && onScreen(it) }
+
+    /** Prvých ~40 viditeľných textov/popisov obrazovky do logu (na dolaďovanie selektorov). */
+    private fun logScreen(tag: String, pkg: String) {
+        val seen = LinkedHashSet<String>()
+        for (n in appNodes(pkg)) {
+            if (!onScreen(n)) continue
+            val id = n.viewIdResourceName?.substringAfterLast('/')?.let { "#$it" } ?: ""
+            for (l in labels(n)) {
+                seen.add(l.replace(WHITESPACE, " ").take(60) + id)
+                if (seen.size >= 40) break
+            }
+            if (seen.size >= 40) break
+        }
+        plog("$tag: obrazovka: ${seen.joinToString(" | ")}")
+    }
+
+    private fun setNodeText(node: AccessibilityNodeInfo, text: String): Boolean {
+        val b = android.os.Bundle()
+        b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        return try {
+            node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun back(wait: Long = 1_000) {
+        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        sleepStoppable(wait)
+    }
+
+    private fun goHome() {
+        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        sleepStoppable(1_500)
+    }
+
+    /** Uri videa v galérii: už stiahnuté, inak sa stiahne. */
+    private fun phoneVideoUri(ep: Episode): Uri? =
+        Downloads.savedUri(service, ep) ?: if (download(ep)) Downloads.savedUri(service, ep) else null
+
+    /** Nahrá diel [item] z mobilu na platformy z [enabled], na ktoré ešte nie je (poradie YouTube, Instagram); jedna zlyhaná platforma nezastaví druhú. */
+    private fun runPhonePosts(item: Item, enabled: Set<String>) {
+        val ep = item.episode
+        for (platform in PhonePosts.pending(service, ep, enabled)) {
+            if (stopped) return
+            val key = PhonePosts.key(ep, platform)
+            Store.addPostTry(service, key)
+            val uri = phoneVideoUri(ep)
+            val r = if (uri == null) {
+                pfail("video sa nepodarilo stiahnuť")
+            } else {
+                try {
+                    if (platform == PhonePosts.YOUTUBE) postYoutube(ep, uri, false) else postInstagram(ep, uri, false)
+                } catch (e: Exception) {
+                    pfail("chyba: ${e.javaClass.simpleName}: ${e.message ?: ""}")
+                }
+            }
+            if (stopped && !r.ok) return
+            Diag.appendPhonePost(service, ep, platform, r.ok, r.reason, false)
+            if (r.ok) {
+                Store.setPostDone(service, key)
+                PhonePosts.addLocalSubmit(service, ep, platform)
+            }
+            overlay.show("$platform: ${ep.channel.name} – ${if (r.ok) "nahrané" else "zlyhalo: ${r.reason}"}", stopButton())
+            goHome()
+        }
+    }
+
+    /** Skúška nahratia (adb UPLOAD_TEST): najnovší diel sady, celý postup; pri [dry] sa na Upload/Share neklikne a koncept sa zahodí. */
+    fun uploadTest(platform: String, set: String, dry: Boolean): Boolean = startThread {
+        val ch = channels.firstOrNull { it.dropKey == set }
+        val ep = try {
+            ch?.let { Repo.fetchEpisodes(it, 1).firstOrNull() }
+        } catch (e: Exception) {
+            null
+        }
+        val uri = ep?.let { phoneVideoUri(it) }
+        val r = if (ep == null || uri == null) {
+            pfail("diel sady $set sa nenašiel alebo nestiahol")
+        } else {
+            try {
+                if (platform == PhonePosts.YOUTUBE) postYoutube(ep, uri, dry) else postInstagram(ep, uri, dry)
+            } catch (e: Exception) {
+                pfail("chyba: ${e.javaClass.simpleName}: ${e.message ?: ""}")
+            }
+        }
+        if (ep != null) Diag.appendPhonePost(service, ep, platform, r.ok, r.reason, dry)
+        Log.i(RunAllReceiver.TAG, "UPLOAD_TEST: $platform $set dry=$dry ok=${r.ok} ${r.reason}")
+        overlay.show("Nahratie (skúška${if (dry) ", dry" else ""}): $platform – ${if (r.ok) "OK" else "zlyhalo"} – ${r.reason}")
+        overlay.hideAfter(8_000)
+        if (!stopped) goHome()
+    }
+
+    private fun launchApp(pkg: String): Boolean {
+        val i = service.packageManager.getLaunchIntentForPackage(pkg) ?: return false
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        return try {
+            service.startActivity(i)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun normText(n: AccessibilityNodeInfo): String = norm(n.text?.toString() ?: "")
+
+    /** Posunie prvý rolovateľný uzol aplikácie o stranu dopredu. */
+    private fun scrollForward(pkg: String) {
+        val sc = appNodes(pkg).firstOrNull { it.isScrollable && onScreen(it) } ?: return
+        try {
+            sc.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+        } catch (e: Exception) {
+        }
+        sleepStoppable(800)
+    }
+
+    /** [pollApp] s rolovaním: kým sa [find] nenájde, najviac 3× posunie obrazovku. */
+    private fun <T : Any> pollScrolling(pkg: String, find: (List<AccessibilityNodeInfo>) -> T?): T? {
+        pollApp(pkg, 3_000L, find)?.let { return it }
+        for (i in 1..3) {
+            if (stopped) return null
+            scrollForward(pkg)
+            pollApp(pkg, 1_200L, find)?.let { return it }
+        }
+        return null
+    }
+
+    // ---- YouTube ----
+
+    private fun ytTitle(title: String): String {
+        var t = norm(title)
+        if (!t.contains("#shorts", ignoreCase = true) && t.length + 8 <= 100) t += " #shorts"
+        t = t.take(100)
+        if (t.isNotEmpty() && t.last().isHighSurrogate()) t = t.dropLast(1)
+        return t
+    }
+
+    /** Prepne kanál v appke YouTube; null = kanál [name] je aktívny, inak zlyhanie. */
+    private fun ytSwitchChannel(name: String): SubmitResult? {
+        if (!launchApp(YT)) return pfail("YouTube sa nespustil")
+        val size = Nodes.screenSize(service)
+        val you = pollApp(YT, 25_000L) { nodes ->
+            val m = nodes.filter { n -> onScreen(n) && labels(n).any { it.trim().equals("You", ignoreCase = true) } }
+            m.firstOrNull { Nodes.bounds(it).top > size.y * 0.6 } ?: m.firstOrNull()
+        }
+        if (you == null) {
+            logScreen("yt", YT)
+            return pfail("YouTube: karta You sa nenašla")
+        }
+        sleepStoppable(1_000)
+        tap(you)
+        val sw = pollApp(YT, 10_000L) { has(it, "Switch account") }
+        if (sw == null) {
+            logScreen("yt", YT)
+            return pfail("YouTube: Switch account sa nenašlo")
+        }
+        tap(sw)
+        val row = pollApp(YT, 10_000L) { nodes ->
+            nodes.firstOrNull { n ->
+                onScreen(n) && labels(n).any { l ->
+                    l.startsWith("$name,", ignoreCase = true) || l.startsWith("Selected account: $name,", ignoreCase = true)
+                }
+            }
+        }
+        if (row == null) {
+            logScreen("yt", YT)
+            back()
+            return pfail("YouTube: kanál $name nie je v zozname účtov")
+        }
+        val selected = labels(row).any { it.startsWith("Selected account:", ignoreCase = true) }
+        plog("yt: kanál $name ${if (selected) "už je vybraný" else "prepínam"}")
+        if (selected) {
+            back(1_500)
+        } else {
+            tap(row)
+            sleepStoppable(3_000)
+        }
+        return null
+    }
+
+    /** Zahodí rozpracované nahrávanie: Navigate up -> dialóg „Discard changes?“ -> Discard. */
+    private fun ytDiscard() {
+        for (i in 1..4) {
+            if (stopped) return
+            var d = exact(appNodes(YT), "Discard")
+            if (d == null) {
+                val up = exact(appNodes(YT), "Navigate up")
+                if (up != null) tap(up) else back()
+                sleepStoppable(1_200)
+                d = pollApp(YT, 3_000L) { exact(it, "Discard") }
+            }
+            if (d != null) {
+                tap(d)
+                sleepStoppable(1_500)
+                return
+            }
+            if (has(appNodes(YT), "Add details") == null) return
+        }
+    }
+
+    private fun isUploadButton(n: AccessibilityNodeInfo): Boolean =
+        onScreen(n) && (n.viewIdResourceName?.endsWith("upload_bottom_button") == true ||
+            (cls(n) == CLS_BUTTON && labels(n).any { it.trim().equals("Upload", ignoreCase = true) }))
+
+    private fun postYoutube(ep: Episode, uri: Uri, dry: Boolean): SubmitResult {
+        val t = PhonePosts.target(ep) ?: return pfail("sada nemá cieľ")
+        val name = t.ytName
+        val title = ytTitle(ep.title)
+        val caption = ep.text
+        overlay.show("YouTube: ${ep.channel.name} – prepínam kanál…", stopButton())
+        ytSwitchChannel(name)?.let { return it }
+        if (stopped) return pfail("zastavené")
+
+        overlay.show("YouTube: ${ep.channel.name} – otváram nahrávanie…", stopButton())
+        val up = Intent("com.google.android.youtube.intent.action.UPLOAD")
+            .setDataAndType(uri, "video/mp4")
+            .setComponent(android.content.ComponentName(YT, "com.google.android.apps.youtube.app.application.Shell_UploadActivity"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        up.clipData = android.content.ClipData.newRawUri("video", uri)
+        try {
+            service.startActivity(up)
+        } catch (e: Exception) {
+            return pfail("nahrávanie YouTube sa nespustilo: ${e.javaClass.simpleName}")
+        }
+        if (pollApp(YT, 30_000L) { has(it, "Add details") } == null) {
+            logScreen("yt", YT)
+            if (!stopped) ytDiscard()
+            return pfail("obrazovka Add details sa neukázala")
+        }
+        sleepStoppable(1_500)
+        logScreen("yt Add details", YT)
+
+        fun bail(reason: String): SubmitResult {
+            logScreen("yt", YT)
+            ytDiscard()
+            return pfail(reason)
+        }
+
+        // Kanál: viditeľný názov očakávaného kanála (pred zadaním textov, aby ho nenahradil text z titulku/popisu).
+        if (pollApp(YT, 8_000L) { has(it, name) } == null) return bail("na Add details nie je kanál $name")
+
+        // Title
+        overlay.show("YouTube: ${ep.channel.name} – názov…", stopButton())
+        val titleNode = pollApp(YT, 8_000L) { nodes ->
+            val ed = nodes.filter { it.isEditable && onScreen(it) }
+            ed.firstOrNull { it.hintText?.toString()?.startsWith("Create a title", ignoreCase = true) == true }
+                ?: ed.firstOrNull { cls(it) == CLS_EDITTEXT }
+        } ?: return bail("pole Title sa nenašlo")
+        setNodeText(titleNode, title)
+        sleepStoppable(700)
+        val titlePrefix = norm(title).take(30)
+        fun titleOk(nodes: List<AccessibilityNodeInfo>) = nodes.any { it.isEditable && normText(it).startsWith(titlePrefix) }
+        if (!titleOk(appNodes(YT))) return bail("názov sa nezapísal")
+
+        // Audience (povinné)
+        var audience = has(appNodes(YT), "not Made for Kids") != null
+        if (!audience) {
+            val row = pollScrolling(YT) { has(it, "Select audience") }
+                ?: return bail("riadok Audience sa nenašiel")
+            tap(row)
+            val no = pollApp(YT, 10_000L) { has(it, "not Made for Kids") } ?: return bail("voľba Not Made for Kids sa nenašla")
+            tap(no)
+            sleepStoppable(800)
+            val upNode = pollApp(YT, 3_000L) { exact(it, "Navigate up") }
+            if (upNode != null) tap(upNode) else back()
+            if (pollApp(YT, 8_000L) { has(it, "Add details") } == null) return bail("po Audience sa Add details nevrátil")
+            audience = true
+        }
+
+        // Description (nepovinné)
+        val dRow = has(appNodes(YT), "Add description")
+        if (dRow == null) {
+            plog("yt: riadok Add description sa nenašiel, pokračujem bez popisu")
+        } else {
+            overlay.show("YouTube: ${ep.channel.name} – popis…", stopButton())
+            tap(dRow)
+            val ed = pollApp(YT, 8_000L) { nodes ->
+                val c = nodes.filter { it.isEditable && onScreen(it) && !normText(it).startsWith(titlePrefix) }
+                c.firstOrNull { it.hintText?.toString()?.contains("description", ignoreCase = true) == true } ?: c.firstOrNull()
+            }
+            if (ed == null) {
+                plog("yt: pole popisu sa nenašlo, pokračujem bez popisu")
+            } else {
+                val ok = setNodeText(ed, caption)
+                sleepStoppable(500)
+                plog("yt: popis ${if (ok) "zapísaný" else "sa nezapísal"}")
+                for (i in 1..3) {
+                    val upNode = exact(appNodes(YT), "Navigate up")
+                    if (upNode != null) tap(upNode) else back()
+                    sleepStoppable(1_000)
+                    if (appNodes(YT).none { it.isEditable && onScreen(it) && !normText(it).startsWith(titlePrefix) }) break
+                }
+            }
+            if (pollApp(YT, 8_000L) { has(it, "Add details") } == null) return bail("po popise sa Add details nevrátil")
+        }
+
+        // Tvrdá kontrola pred odoslaním
+        sleepStoppable(500)
+        var fin = appNodes(YT)
+        logScreen("yt pred odoslaním", YT)
+        if (!titleOk(fin)) return bail("kontrola: názov nesedí")
+        if (!audience || has(fin, "Select audience") != null) return bail("kontrola: Audience nie je nastavené")
+        val badVis = fin.firstOrNull { n ->
+            onScreen(n) && !n.isEditable && labels(n).any { l ->
+                val x = l.trim().lowercase(Locale.ROOT)
+                x == "private" || x == "unlisted" || (x.startsWith("visibility") && (x.contains("private") || x.contains("unlisted")))
+            }
+        }
+        if (badVis != null) return bail("kontrola: viditeľnosť nie je Public (${labels(badVis).firstOrNull()})")
+        plog("yt: Public ${if (has(fin, "Public") != null) "viditeľné" else "nepotvrdené (len nie je Private/Unlisted)"}")
+        var upload = fin.firstOrNull { isUploadButton(it) }
+        if (upload == null) {
+            scrollForward(YT)
+            fin = appNodes(YT)
+            upload = fin.firstOrNull { isUploadButton(it) }
+        }
+        if (upload == null) return bail("kontrola: tlačidlo Upload sa nenašlo")
+        if (!upload.isEnabled) return bail("kontrola: tlačidlo Upload je neaktívne")
+
+        if (dry) {
+            plog("yt: dry – kontroly prešli")
+            ytDiscard()
+            return SubmitResult(true, "dry – kontroly prešli (kanál $name, názov, audience, Public)")
+        }
+
+        overlay.show("YouTube: ${ep.channel.name} – nahrávam…", stopButton())
+        tap(upload)
+        val start = SystemClock.uptimeMillis()
+        while (!stopped && SystemClock.uptimeMillis() - start < 30_000L) {
+            sleepStoppable(1_000)
+            val now = appNodes(YT)
+            if (now.isNotEmpty() && has(now, "Add details") == null) {
+                plog("yt: Add details zmizlo, počkám 20 s")
+                sleepStoppable(20_000)
+                return SubmitResult(true, "nahrané")
+            }
+        }
+        return pfail(if (stopped) "zastavené po kliknutí na Upload (výsledok neznámy)" else "Add details nezmizlo do 30 s po Upload", clicked = true)
+    }
+
+    // ---- Instagram ----
+
+    /** Zahodí rozpracovaný reel: Back -> „Save draft?“ -> Start Again; výber z galérie sa len zruší, nič sa nevyberá. */
+    private fun igDiscard() {
+        for (i in 1..5) {
+            if (stopped) return
+            val nodes = appNodes(IG)
+            val sa = has(nodes, "Start Again")
+            if (sa != null) {
+                tap(sa)
+                sleepStoppable(1_500)
+                pollApp(IG, 3_000L) { byId(it, "gallery_cancel_button") }?.let {
+                    tap(it)
+                    sleepStoppable(1_000)
+                }
+                return
+            }
+            val gc = byId(nodes, "gallery_cancel_button")
+            if (gc != null) {
+                tap(gc)
+                sleepStoppable(1_000)
+                return
+            }
+            if (has(nodes, "New reel") == null && has(nodes, "Save draft") == null && byId(nodes, "clips_right_action_button") == null) return
+            back(1_200)
+        }
+    }
+
+    private fun postInstagram(ep: Episode, uri: Uri, dry: Boolean): SubmitResult {
+        val t = PhonePosts.target(ep) ?: return pfail("sada nemá cieľ")
+        val user = t.igUser
+        val caption = ep.text
+        overlay.show("Instagram: ${ep.channel.name} – kontrolujem účet…", stopButton())
+        if (!launchApp(IG)) return pfail("Instagram sa nespustil")
+        val tab = pollApp(IG, 30_000L) { byId(it, "profile_tab") }
+        if (tab == null) {
+            logScreen("ig", IG)
+            return pfail("Instagram: profile_tab sa nenašiel (neprihlásený alebo iná obrazovka)")
+        }
+        sleepStoppable(1_500)
+        val longOk = try {
+            tab.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
+        } catch (e: Exception) {
+            false
+        }
+        if (!longOk) pressNode(tab, 900)
+        val row = pollApp(IG, 8_000L) { nodes ->
+            nodes.firstOrNull { n -> onScreen(n) && labels(n).any { it.trim().removePrefix("@").equals(user, ignoreCase = true) } }
+        }
+        if (row == null) {
+            logScreen("ig účty", IG)
+            back()
+            return pfail("Instagram účet $user nie je v mobile prihlásený")
+        }
+        tap(row)
+        sleepStoppable(3_500)
+        val size = Nodes.screenSize(service)
+        pollApp(IG, 10_000L) { byId(it, "profile_tab") }?.let { tap(it) }
+        val active = pollApp(IG, 10_000L) { nodes ->
+            nodes.firstOrNull { n ->
+                onScreen(n) && Nodes.bounds(n).top < size.y * 0.2 && labels(n).any { it.trim().removePrefix("@").equals(user, ignoreCase = true) }
+            }
+        }
+        if (active == null) {
+            logScreen("ig", IG)
+            return pfail("Instagram: po prepnutí nie je aktívny účet $user")
+        }
+
+        overlay.show("Instagram: ${ep.channel.name} – otváram editor…", stopButton())
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("video/mp4")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .setComponent(android.content.ComponentName(IG, "com.instagram.share.handleractivity.ReelShareHandlerActivity"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        send.clipData = android.content.ClipData.newRawUri("video", uri)
+        try {
+            service.startActivity(send)
+        } catch (e: Exception) {
+            return pfail("Instagram editor sa nespustil: ${e.javaClass.simpleName}")
+        }
+
+        fun bail(reason: String): SubmitResult {
+            logScreen("ig", IG)
+            igDiscard()
+            return pfail(reason)
+        }
+
+        val next = pollApp(IG, 30_000L) { byId(it, "clips_right_action_button") } ?: return bail("editor reelu sa neukázal")
+        sleepStoppable(1_000)
+        tap(next)
+        if (pollApp(IG, 20_000L) { has(it, "New reel") } == null) return bail("obrazovka New reel sa neukázala")
+        sleepStoppable(1_500)
+        logScreen("ig New reel", IG)
+
+        // Popis: editovateľný uzol; inak ťuk na pole a nový pokus.
+        overlay.show("Instagram: ${ep.channel.name} – popis…", stopButton())
+        val capPrefix = norm(caption).take(25)
+        fun capOk(nodes: List<AccessibilityNodeInfo>) = nodes.any { n -> n.text?.let { norm(it.toString()).startsWith(capPrefix) } == true }
+        fun editable(nodes: List<AccessibilityNodeInfo>) = nodes.firstOrNull { n -> onScreen(n) && (n.isEditable || cls(n) == CLS_EDITTEXT) }
+        var written = false
+        val ed0 = editable(appNodes(IG))
+        if (ed0 != null) {
+            written = setNodeText(ed0, caption)
+            sleepStoppable(600)
+        }
+        if (!written || !capOk(appNodes(IG))) {
+            val field = has(appNodes(IG), "Write a caption", editable = true)
+            if (field != null) {
+                tap(field)
+                sleepStoppable(1_000)
+            }
+            val ed = pollApp(IG, 4_000L) { editable(it) }
+            if (ed != null) {
+                setNodeText(ed, caption)
+                sleepStoppable(600)
+            }
+        }
+        if (!capOk(appNodes(IG))) return bail("popis sa nepodarilo zapísať")
+
+        // Tvrdá kontrola pred odoslaním
+        var share = byId(appNodes(IG), "share_button")
+        if (share == null) {
+            back()
+            share = pollApp(IG, 4_000L) { byId(it, "share_button") }
+        }
+        if (share == null) return bail("kontrola: tlačidlo Share sa nenašlo")
+        if (!capOk(appNodes(IG))) return bail("kontrola: popis nesedí")
+        if (!share.isEnabled) return bail("kontrola: tlačidlo Share je neaktívne")
+
+        if (dry) {
+            plog("ig: dry – kontroly prešli")
+            igDiscard()
+            return SubmitResult(true, "dry – kontroly prešli (účet $user, popis)")
+        }
+
+        overlay.show("Instagram: ${ep.channel.name} – zverejňujem…", stopButton())
+        tap(share)
+        val start = SystemClock.uptimeMillis()
+        while (!stopped && SystemClock.uptimeMillis() - start < 30_000L) {
+            sleepStoppable(1_000)
+            val now = appNodes(IG)
+            if (now.isNotEmpty() && has(now, "New reel") == null) {
+                plog("ig: New reel zmizlo, počkám 20 s")
+                sleepStoppable(20_000)
+                return SubmitResult(true, "nahrané")
+            }
+        }
+        return pfail(if (stopped) "zastavené po kliknutí na Share (výsledok neznámy)" else "New reel nezmizlo do 30 s po Share", clicked = true)
+    }
 }
+

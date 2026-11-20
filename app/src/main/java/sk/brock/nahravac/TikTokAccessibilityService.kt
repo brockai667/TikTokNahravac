@@ -130,6 +130,13 @@ class TikTokAccessibilityService : AccessibilityService() {
         return r.submitTest(url, caption, account, dry, link)
     }
 
+    /** Skúšobné nahratie dielu z mobilu na YouTube/Instagram (adb UPLOAD_TEST); False, ak je služba zaneprázdnená. */
+    fun uploadTest(platform: String, set: String, dry: Boolean): Boolean {
+        if (isBusy()) return false
+        val r = replayer ?: return false
+        return r.uploadTest(platform, set, dry)
+    }
+
     /** Odošle Instagram/YouTube príspevky do kampaní; False, ak je služba zaneprázdnená. */
     fun runSubmits(subs: List<Submit>): Boolean {
         if (isBusy()) return false

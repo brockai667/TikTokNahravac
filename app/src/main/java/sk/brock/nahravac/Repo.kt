@@ -68,7 +68,7 @@ object Repo {
     }
 
     /** ISO čas s posunom (aj „Z“) alebo len dátum (polnoc UTC); inak null. */
-    private fun instantOf(s: String?): Instant? {
+    fun instantOf(s: String?): Instant? {
         if (s == null) return null
         return try {
             OffsetDateTime.parse(s).toInstant()
@@ -181,6 +181,23 @@ object Repo {
             )
         }
         return list.filter { afterSince(channel, it.due) }.sortedByDescending { it.number }.take(limit)
+    }
+
+    /** Kľúč `phone_posts` navrchu feedu ("youtube", "instagram"): na ktoré platformy nahráva diel aj mobil. Chýba = prázdna množina. */
+    fun fetchPhonePosts(ctx: Context): Set<String> {
+        val out = HashSet<String>()
+        val urls = loadChannels(ctx).filter { isSupported(it) && it.format == FORMAT_DROP }.map { it.stateUrl }.distinct()
+        for (u in urls) {
+            try {
+                val arr = JSONObject(httpGet(u)).optJSONArray("phone_posts") ?: continue
+                for (i in 0 until arr.length()) {
+                    arr.optString(i).trim().lowercase(Locale.ROOT).takeIf { it in PhonePosts.PLATFORMS }?.let { out.add(it) }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("NahravacRunAll", "phone_posts: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+        return out
     }
 
     /** Zoznam `submits` z feedov všetkých "drop" kanálov (kľúč môže chýbať; chyba jedného feedu nezhodí ostatné). */
