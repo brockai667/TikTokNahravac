@@ -2241,10 +2241,26 @@ class Replayer(
             back()
             return pfail("Instagram účet $user nie je v mobile prihlásený")
         }
-        click(row)
-        sleepStoppable(4_000)
+        var sheetGone = false
+        for (attempt in 1..3) {
+            val r2 = appNodes(IG).firstOrNull { n -> onScreen(n) && labels(n).any { it.trim().removePrefix("@").equals(user, ignoreCase = true) } } ?: row
+            when (attempt) {
+                1 -> click(r2)
+                2 -> (Nodes.clickableAncestor(r2) ?: r2).let { tap(it) }
+                else -> click(r2)
+            }
+            sleepStoppable(3_500)
+            logScreen("ig po ťuku na účet ($attempt)", IG)
+            if (has(appNodes(IG), "Add Instagram") == null) {
+                sheetGone = true
+                break
+            }
+        }
+        if (!sheetGone) return pfail("Instagram: zoznam účtov sa nezatvoril po výbere $user")
         val size = Nodes.screenSize(service)
         pollApp(IG, 10_000L) { byId(it, "profile_tab") }?.let { click(it) }
+        sleepStoppable(2_000)
+        logScreen("ig profil", IG)
         val active = pollApp(IG, 10_000L) { nodes ->
             nodes.firstOrNull { n ->
                 onScreen(n) && Nodes.bounds(n).top < size.y * 0.2 && labels(n).any { it.trim().removePrefix("@").equals(user, ignoreCase = true) }
