@@ -122,6 +122,29 @@ object Nodes {
         return out
     }
 
+    /** Korene všetkých okien Chrome (odosielanie do kampane); ak okná nie sú k dispozícii, aktívne okno (ak je Chrome). */
+    fun chromeRoots(service: AccessibilityService): List<AccessibilityNodeInfo> {
+        val out = ArrayList<AccessibilityNodeInfo>()
+        val wins = windowsOf(service)
+        for (w in wins) {
+            val root = try {
+                w.root
+            } catch (e: Exception) {
+                null
+            } ?: continue
+            if (root.packageName?.toString() == "com.android.chrome") out.add(root)
+        }
+        if (out.isEmpty() && wins.isEmpty()) {
+            val active = try {
+                service.rootInActiveWindow
+            } catch (e: Exception) {
+                null
+            }
+            if (active?.packageName?.toString() == "com.android.chrome") out.add(active)
+        }
+        return out
+    }
+
     /** Je bod [x],[y] v okne klávesnice? */
     fun isInIme(service: AccessibilityService, x: Float, y: Float): Boolean {
         val r = Rect()

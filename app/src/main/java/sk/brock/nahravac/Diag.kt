@@ -26,6 +26,7 @@ object Diag {
     private const val SUBDIR = "TikTokNahravac"
     private const val MAX_NODES = 1_500
     private const val POSTED_FILE = "posted.jsonl"
+    private const val SUBMITTED_FILE = "submitted.jsonl"
 
     /**
      * Uloží diagnostiku; true = uložená. [macro] = celý naučený postup, [log] = priebeh prehrávania.
@@ -116,6 +117,32 @@ object Diag {
                 .put("title", ep.title)
                 .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date()))
                 .toString() + "\n"
+            appendLine(ctx, POSTED_FILE, line)
+        } catch (e: Exception) {
+            // záznam je len pomoc
+        }
+    }
+
+    /** Výsledok odoslania príspevku do kampane Content Rewards: riadok do Download/TikTokNahravac/submitted.jsonl. */
+    fun appendSubmitted(ctx: Context, episode: String, channel: String, campaignUrl: String, ok: Boolean, reason: String, dry: Boolean) {
+        try {
+            val o = JSONObject()
+                .put("episode", episode)
+                .put("channel", channel)
+                .put("campaign_url", campaignUrl)
+                .put("ok", ok)
+                .put("reason", reason)
+                .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT).format(Date()))
+            if (dry) o.put("dry", true)
+            appendLine(ctx, SUBMITTED_FILE, o.toString() + "\n")
+        } catch (e: Exception) {
+            // záznam je len pomoc
+        }
+    }
+
+    private fun appendLine(ctx: Context, fileName: String, line: String) {
+        if (Build.VERSION.SDK_INT < 29) return
+        try {
             val resolver = ctx.contentResolver
             val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             var uri: Uri? = null
@@ -123,7 +150,7 @@ object Diag {
                 collection,
                 arrayOf(MediaStore.MediaColumns._ID),
                 "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",
-                arrayOf(POSTED_FILE, "${Environment.DIRECTORY_DOWNLOADS}/$SUBDIR%"),
+                arrayOf(fileName, "${Environment.DIRECTORY_DOWNLOADS}/$SUBDIR%"),
                 null,
             )?.use { c ->
                 if (c.moveToFirst()) {
@@ -133,7 +160,7 @@ object Diag {
             val existing = uri
             if (existing == null) {
                 val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, POSTED_FILE)
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                     put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
                     put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$SUBDIR/")
                 }

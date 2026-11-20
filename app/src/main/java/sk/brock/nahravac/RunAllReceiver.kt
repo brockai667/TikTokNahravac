@@ -56,4 +56,34 @@ open class RunAllReceiver : BroadcastReceiver() {
 }
 
 /** To isté pre `adb shell am broadcast -n ...` (shell má povolenie DUMP, nie naše signature povolenie). */
-class RunAllShellReceiver : RunAllReceiver()
+class RunAllShellReceiver : RunAllReceiver() {
+    companion object {
+        /** Skúška odoslania do kampane: extras url, caption, account (bez @), dry (default true). */
+        const val ACTION_SUBMIT_TEST = "sk.brock.nahravac.SUBMIT_TEST"
+    }
+
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action != ACTION_SUBMIT_TEST) {
+            super.onReceive(context, intent)
+            return
+        }
+        val svc = TikTokAccessibilityService.instance
+        if (svc == null) {
+            Log.w(TAG, "SUBMIT_TEST ignorovane: sluzba dostupnosti nie je zapnuta")
+            return
+        }
+        val url = intent.getStringExtra("url") ?: ""
+        val caption = intent.getStringExtra("caption") ?: ""
+        val account = intent.getStringExtra("account") ?: ""
+        val dry = intent.getBooleanExtra("dry", true)
+        if (url.isBlank() || caption.isBlank() || account.isBlank()) {
+            Log.w(TAG, "SUBMIT_TEST ignorovane: chyba url, caption alebo account")
+            return
+        }
+        if (svc.submitTest(url, caption, account, dry)) {
+            Log.i(TAG, "SUBMIT_TEST: spustene (dry=$dry)")
+        } else {
+            Log.w(TAG, "SUBMIT_TEST: sluzba je zaneprazdnena")
+        }
+    }
+}

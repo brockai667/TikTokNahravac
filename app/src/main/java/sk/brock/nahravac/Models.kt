@@ -41,6 +41,8 @@ data class Episode(
     val due: String?,
     /** Adresa obalu z fabriky (podľa [Channel.cover]); null = žiadny, použije sa snímka z videa. */
     val coverUrl: String? = null,
+    /** Adresa kampane na contentrewards.com (pole `campaign_url` vo formáte "drop"); null = nič sa neodosiela. */
+    val campaignUrl: String? = null,
 ) {
     /** Kľúč pre SharedPreferences (hotovo, Uri stiahnutého videa). Pri "drop" podľa súboru, lebo poradie sa mení. */
     val key: String

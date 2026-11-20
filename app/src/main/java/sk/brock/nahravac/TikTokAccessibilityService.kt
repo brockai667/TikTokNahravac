@@ -112,6 +112,13 @@ class TikTokAccessibilityService : AccessibilityService() {
         return r.runAll(items)
     }
 
+    /** Skúšobné odoslanie do kampane (len postup Content Rewards v Chrome); False, ak je služba zaneprázdnená. */
+    fun submitTest(url: String, caption: String, account: String, dry: Boolean): Boolean {
+        if (isBusy()) return false
+        val r = replayer ?: return false
+        return r.submitTest(url, caption, account, dry)
+    }
+
     // ------------------------------------------------------------------
     // Výpis stromu obrazovky (ladenie)
     // ------------------------------------------------------------------

@@ -2,11 +2,14 @@ package sk.brock.nahravac
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.graphics.Path
+import android.net.Uri
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import java.io.IOException
 import java.util.Locale
@@ -128,6 +131,22 @@ class Replayer(
 
         /** Meno účtu v hlavičke vlastného profilu (stred hornej lišty), ak sa nenájde ako text. */
         private const val HEADER_Y = 0.064f
+
+        /** Odoslanie príspevku do kampane Content Rewards (Chrome). */
+        private const val CHROME = "com.android.chrome"
+        private const val CAMPAIGN_PREFIX = "https://contentrewards.com/c/campaigns/"
+        private const val CAMPAIGN_FIRST_WAIT_MS = 60_000L
+        private const val CAMPAIGN_RETRY_WAIT_MS = 60_000L
+        private const val CAMPAIGN_ATTEMPTS = 6
+        private const val SUBMIT_BUTTON_WAIT_MS = 25_000L
+        private const val CHOOSE_WAIT_MS = 15_000L
+        private const val RESULT_WAIT_MS = 20_000L
+        private const val CLS_BUTTON = "android.widget.Button"
+        private const val CLS_TOGGLE = "android.widget.ToggleButton"
+        private const val CLS_CHECKBOX = "android.widget.CheckBox"
+        private const val CLS_TEXTVIEW = "android.widget.TextView"
+        private val SUBMIT_N_CLIPS = Regex("Submit \\d+ clips")
+        private val WHITESPACE = Regex("[\\s\\u00A0]+")
     }
 
     @Volatile
@@ -215,6 +234,7 @@ class Replayer(
         var queue = items
         val failed = ArrayList<Item>()
         val unsure = ArrayList<Item>()
+        val forCampaign = ArrayList<Item>()
         round@ for (round in 1..2) {
             failed.clear()
             for (item in queue) {
@@ -231,7 +251,10 @@ class Replayer(
                     }
                 }
                 when (outcome) {
-                    Outcome.DONE -> okCount++
+                    Outcome.DONE -> {
+                        okCount++
+                        if (!item.episode.campaignUrl.isNullOrBlank()) forCampaign.add(item)
+                    }
                     Outcome.UNSURE -> unsure.add(item)
                     Outcome.SKIPPED -> failed.add(item)
                     Outcome.STOPPED -> break@round
@@ -254,8 +277,18 @@ class Replayer(
         if (!stopped) {
             // Koniec celého behu: po Post chvíľu počkať a domček, nech v TikToku nebeží video (upload ide na pozadí).
             sleepStoppable(4_000)
+            if (forCampaign.isNotEmpty()) submitCampaigns(forCampaign)
             service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
         }
+    }
+
+    /** Skúška odoslania do kampane (adb SUBMIT_TEST): 1 pokus, bez čakania 60 s; po skončení domček. */
+    fun submitTest(url: String, caption: String, account: String, dry: Boolean): Boolean = startThread {
+        val acct = account.trim().removePrefix("@")
+        val r = submitCampaign("test", acct, url, caption, acct, 1, dry)
+        overlay.show("Kampaň (skúška${if (dry) ", dry" else ""}): ${if (r.ok) "OK" else "zlyhalo"} – ${r.reason}")
+        overlay.hideAfter(8_000)
+        if (!stopped) service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
     }
 
     /** Jeden kanál: stiahnutie a najviac [EPISODE_ATTEMPTS] pokusov, každý od spustenia TikToku. */
@@ -595,6 +628,281 @@ class Replayer(
             }
         }
         return !stopped
+    }
+
+    // ------------------------------------------------------------------
+    // Odoslanie príspevku do kampane Content Rewards (Chrome)
+    // ------------------------------------------------------------------
+
+    private class SubmitResult(val ok: Boolean, val reason: String, val retry: Boolean = false)
+
+    /** Dlaždica príspevku v dialógu „Choose clips“: [text] je s normalizovanými medzerami. */
+    private class Tile(val node: AccessibilityNodeInfo, val text: String, val checked: Boolean)
+
+    private fun clog(msg: String) {
+        Log.i(RunAllReceiver.TAG, "kampan: $msg")
+    }
+
+    private fun fail(reason: String, retry: Boolean = false): SubmitResult {
+        clog("zlyhalo: $reason")
+        return SubmitResult(false, reason, retry)
+    }
+
+    /** Po 60 s (Content Rewards musí príspevok zbadať) odošle každú položku do jej kampane; výsledok ide do submitted.jsonl. */
+    private fun submitCampaigns(items: List<Item>) {
+        overlay.show("Kampaň: čakám 60 s, kým Content Rewards zbadá príspevky…", stopButton())
+        sleepStoppable(CAMPAIGN_FIRST_WAIT_MS)
+        for (item in items) {
+            if (stopped) return
+            val ep = item.episode
+            val acct = ep.channel.tiktok.ifEmpty { ep.channel.name }.trim().removePrefix("@")
+            val url = ep.campaignUrl ?: continue
+            val r = submitCampaign(ep.key, ep.channel.slug, url, item.caption, acct, CAMPAIGN_ATTEMPTS, false)
+            if (stopped) return
+            overlay.show("Kampaň: ${ep.channel.name} – ${if (r.ok) "odoslané" else "zlyhalo: ${r.reason}"}", stopButton())
+            sleepStoppable(2_000)
+        }
+    }
+
+    /**
+     * Odošle jeden príspevok do kampane; najviac [attempts] pokusov (opakuje sa len, keď dlaždica ešte nie je v zozname).
+     * [dry] = všetko po kontrolu pred klikom, tlačidlo odoslania sa nestlačí. Výsledok sa zapíše do submitted.jsonl.
+     */
+    private fun submitCampaign(
+        key: String, channel: String, url: String, caption: String, account: String, attempts: Int, dry: Boolean,
+    ): SubmitResult {
+        val prefix = captionPrefix(caption)
+        val acct = account.trim().removePrefix("@").lowercase(Locale.ROOT)
+        var r = when {
+            !url.startsWith(CAMPAIGN_PREFIX) -> fail("adresa kampane nie je povolená")
+            prefix.isEmpty() -> fail("prázdny popis")
+            acct.isEmpty() -> fail("chýba účet TikToku")
+            else -> SubmitResult(false, "nespustené")
+        }
+        if (url.startsWith(CAMPAIGN_PREFIX) && prefix.isNotEmpty() && acct.isNotEmpty()) {
+            for (attempt in 1..attempts) {
+                if (stopped) {
+                    r = fail("zastavené")
+                    break
+                }
+                clog("$channel: pokus $attempt/$attempts${if (dry) " (dry)" else ""}")
+                r = try {
+                    submitOnce(channel, url, prefix, acct, dry)
+                } catch (e: Exception) {
+                    fail("chyba: ${e.javaClass.simpleName}: ${e.message ?: ""}")
+                }
+                if (r.ok || !r.retry || attempt == attempts) break
+                overlay.show("Kampaň: $channel – dlaždica ešte nie je, čakám 60 s ($attempt/$attempts)…", stopButton())
+                sleepStoppable(CAMPAIGN_RETRY_WAIT_MS)
+            }
+        }
+        clog("$channel: výsledok ok=${r.ok} ${r.reason}")
+        Diag.appendSubmitted(service, key, channel, url, r.ok, r.reason, dry)
+        return r
+    }
+
+    /** Prvých 40 znakov popisu s normalizovanými medzerami (nerozseknutý surogátový pár). */
+    private fun captionPrefix(caption: String): String {
+        var p = norm(caption).take(40)
+        if (p.isNotEmpty() && p.last().isHighSurrogate()) p = p.dropLast(1)
+        return p
+    }
+
+    private fun norm(s: String): String = s.replace(WHITESPACE, " ").trim()
+
+    private fun cls(n: AccessibilityNodeInfo): String? = n.className?.toString()
+
+    private fun txt(n: AccessibilityNodeInfo): String? = Nodes.ownText(n) ?: Nodes.ownDesc(n)
+
+    private fun chromeNodes(): List<AccessibilityNodeInfo> = try {
+        Nodes.collect(Nodes.chromeRoots(service))
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** Ako [pollNode], ale nad oknami Chrome. */
+    private fun <T : Any> pollChrome(timeoutMs: Long, find: (List<AccessibilityNodeInfo>) -> T?): T? {
+        val start = SystemClock.uptimeMillis()
+        while (!stopped) {
+            val r = try {
+                find(chromeNodes())
+            } catch (e: Exception) {
+                null
+            }
+            if (r != null) return r
+            if (SystemClock.uptimeMillis() - start >= timeoutMs) return null
+            sleepStoppable(POLL_MS)
+        }
+        return null
+    }
+
+    /** Uzol má nenulové hranice, ktoré aspoň sčasti ležia na obrazovke (strom Chrome má veľa uzlov [0,0][0,0] alebo pod okrajom). */
+    private fun onScreen(n: AccessibilityNodeInfo): Boolean {
+        val size = Nodes.screenSize(service)
+        val r = Nodes.bounds(n)
+        return !r.isEmpty && r.width() > 0 && r.height() > 0 && r.bottom > 0 && r.top < size.y && r.right > 0 && r.left < size.x
+    }
+
+    private fun isSubmitClipButton(n: AccessibilityNodeInfo): Boolean =
+        cls(n) == CLS_BUTTON && Nodes.ownText(n) == "Submit clip" && onScreen(n)
+
+    private fun hasChooseClips(nodes: List<AccessibilityNodeInfo>): Boolean =
+        nodes.any { txt(it)?.contains("Choose clips") == true }
+
+    /** Dlaždice príspevkov: ToggleButton s textom obsahujúcim „, @“ a „Posted“ (filtre All, @účet N sú iné ToggleButtony). */
+    private fun readTiles(nodes: List<AccessibilityNodeInfo>): List<Tile> = nodes.mapNotNull { n ->
+        if (cls(n) != CLS_TOGGLE) return@mapNotNull null
+        val t = txt(n) ?: return@mapNotNull null
+        if (!t.contains(", @") || !t.contains("Posted")) return@mapNotNull null
+        Tile(n, norm(t), n.isChecked)
+    }
+
+    /** Cieľová dlaždica: text začína popisom (prvých 40 znakov) a obsahuje „, @účet,“. */
+    private fun isTarget(t: Tile, prefix: String, acct: String): Boolean =
+        t.text.startsWith(prefix) && t.text.lowercase(Locale.ROOT).contains(", @$acct,")
+
+    private fun findRequirementsBox(nodes: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? =
+        nodes.firstOrNull { cls(it) == CLS_CHECKBOX && txt(it)?.contains("read the requirements", ignoreCase = true) == true }
+
+    /** Ťuk na uzol: ACTION_CLICK, ak ho uzol neprijme, gesto do stredu (nikdy oboje). */
+    private fun tap(node: AccessibilityNodeInfo): Boolean {
+        val done = try {
+            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        } catch (e: Exception) {
+            false
+        }
+        return done || click(node)
+    }
+
+    private fun closeDialog() {
+        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        sleepStoppable(1_000)
+    }
+
+    /** Dialóg je otvorený: každé zlyhanie ho zatvorí (BACK). */
+    private fun failClosing(reason: String, retry: Boolean = false): SubmitResult {
+        closeDialog()
+        return fail(reason, retry)
+    }
+
+    private fun describeTiles(tiles: List<Tile>): String =
+        tiles.joinToString(" | ") { "${if (it.checked) "[x]" else "[ ]"} ${it.text.take(70)}" }
+
+    /** Jeden pokus o odoslanie podľa postupu a) až i). */
+    private fun submitOnce(label: String, url: String, prefix: String, acct: String, dry: Boolean): SubmitResult {
+        // a) otvoriť adresu v Chrome
+        overlay.show("Kampaň: $label – otváram kampaň v Chrome…", stopButton())
+        try {
+            service.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage(CHROME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (e: Exception) {
+            return fail("Chrome sa nespustil: ${e.javaClass.simpleName}")
+        }
+
+        // b) tlačidlo „Submit clip“ (kým je otvorený starý dialóg, nehľadá sa: bolo by to odosielacie tlačidlo dialógu)
+        val open = pollChrome(SUBMIT_BUTTON_WAIT_MS) { nodes ->
+            if (hasChooseClips(nodes)) null else nodes.firstOrNull { isSubmitClipButton(it) }
+        }
+        if (open == null) {
+            if (stopped) return fail("zastavené")
+            val nodes = chromeNodes()
+            return when {
+                nodes.any { txt(it) == "Join Campaign" } -> fail("neprihlásený / nie v kampani (Join Campaign)")
+                hasChooseClips(nodes) -> fail("dialóg Choose clips bol už otvorený")
+                else -> fail("tlačidlo Submit clip sa neukázalo")
+            }
+        }
+        overlay.show("Kampaň: $label – otváram výber klipov…", stopButton())
+        tap(open)
+
+        // c) dialóg „Choose clips“
+        val chooseNode = pollChrome(CHOOSE_WAIT_MS) { nodes -> nodes.firstOrNull { txt(it)?.contains("Choose clips") == true } }
+            ?: return fail("dialóg Choose clips sa neotvoril")
+        // d) dlaždice (môžu sa načítať s oneskorením)
+        pollChrome(10_000L) { nodes -> readTiles(nodes).takeIf { it.isNotEmpty() } }
+            ?: return failClosing("v dialógu nie sú žiadne dlaždice", retry = true)
+
+        // e) práve jedna cieľová dlaždica
+        val first = readTiles(chromeNodes())
+        val targets = first.filter { isTarget(it, prefix, acct) }
+        if (targets.isEmpty()) return failClosing("dlaždica príspevku sa nenašla (${first.size} dlaždíc)", retry = true)
+        if (targets.size > 1) return failClosing("zhoduje sa viac dlaždíc (${targets.size})")
+        clog("$label: cieľová dlaždica: ${targets[0].text.take(120)}")
+
+        // f) výber: cieľová zaškrtnutá, všetky ostatné nie (po každom kliku nový strom)
+        overlay.show("Kampaň: $label – vyberám príspevok…", stopButton())
+        for (i in 1..12) {
+            if (stopped) return failClosing("zastavené")
+            val tiles = readTiles(chromeNodes())
+            val bad = tiles.firstOrNull { isTarget(it, prefix, acct) != it.checked } ?: break
+            tap(bad.node)
+            sleepStoppable(700)
+        }
+
+        // g) začiarkavacie políčko „I've read the requirements“
+        var box = pollChrome(5_000L) { findRequirementsBox(it) } ?: return failClosing("políčko requirements sa nenašlo")
+        if (!box.isChecked) {
+            try {
+                box.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            } catch (e: Exception) {
+            }
+            sleepStoppable(700)
+            val now = chromeNodes()
+            box = findRequirementsBox(now) ?: return failClosing("políčko requirements zmizlo")
+            if (!box.isChecked) {
+                // políčko má len ~9×8 px: ťuk gestom na stred susedného textu
+                val labelNode = now.firstOrNull {
+                    cls(it) == CLS_TEXTVIEW && txt(it)?.contains("read the requirements", ignoreCase = true) == true && onScreen(it)
+                }
+                if (labelNode != null) {
+                    click(labelNode)
+                    sleepStoppable(700)
+                }
+            }
+        }
+
+        // h) tvrdá kontrola z čerstvého stromu tesne pred kliknutím (výber, políčko, tlačidlo)
+        val nodes = chromeNodes()
+        val tiles = readTiles(nodes)
+        val finalTargets = tiles.filter { isTarget(it, prefix, acct) }
+        val checked = tiles.filter { it.checked }
+        val checkbox = findRequirementsBox(nodes)
+        val tileState = "dlaždíc ${tiles.size}, zaškrtnutých ${checked.size}: ${describeTiles(tiles)}"
+        clog("$label: $tileState; checkbox=${checkbox?.isChecked}")
+        if (finalTargets.size != 1) return failClosing("po výbere nie je práve jedna cieľová dlaždica (${finalTargets.size})")
+        if (checked.size != 1 || !isTarget(checked[0], prefix, acct)) return failClosing("výber nesedí: $tileState")
+        if (checkbox?.isChecked != true) return failClosing("políčko requirements nie je zaškrtnuté")
+        if (nodes.any { txt(it)?.let { t -> SUBMIT_N_CLIPS.matches(t) } == true }) return failClosing("vybrané je viac klipov (Submit N clips)")
+        val submit = nodes.filter { isSubmitClipButton(it) }.maxByOrNull { Nodes.bounds(it).top }
+            ?: return failClosing("tlačidlo Submit clip v dialógu sa nenašlo")
+        val chooseBottom = Nodes.bounds(chooseNode).bottom
+        if (chooseBottom > 0 && Nodes.bounds(submit).top <= chooseBottom) return failClosing("tlačidlo Submit clip nie je v dialógu")
+        if (!submit.isEnabled) return failClosing("tlačidlo Submit clip je neaktívne")
+
+        if (dry) {
+            clog("$label: dry – kontroly prešli, neodosielam")
+            closeDialog()
+            return SubmitResult(true, "dry: kontroly prešli ($tileState)")
+        }
+
+        // i) odoslať (jedno kliknutie) a počkať na zavretie dialógu / „submitted“
+        overlay.show("Kampaň: $label – odosielam…", stopButton())
+        tap(submit)
+        val start = SystemClock.uptimeMillis()
+        while (!stopped && SystemClock.uptimeMillis() - start < RESULT_WAIT_MS) {
+            sleepStoppable(500)
+            val now = chromeNodes()
+            if (now.isEmpty()) continue
+            if (now.any { txt(it)?.contains("submitted", ignoreCase = true) == true } || !hasChooseClips(now)) {
+                return SubmitResult(true, "odoslané")
+            }
+        }
+        if (stopped) return failClosing("zastavené po kliknutí na Submit (výsledok neznámy)")
+        val errors = chromeNodes().mapNotNull { txt(it) }.filter { t ->
+            listOf("error", "invalid", "already", "must", "fail", "unable", "limit", "not eligible", "required").any { t.contains(it, ignoreCase = true) }
+        }.distinct().take(5)
+        return failClosing("dialóg sa nezavrel; texty: ${errors.joinToString(" / ").ifEmpty { "(žiadne)" }}")
     }
 
     // ------------------------------------------------------------------

@@ -134,6 +134,7 @@ object Repo {
                 videoUrl = o.str("url")!!,
                 due = o.createdOf(),
                 coverUrl = coverUrlOf(channel, o.str("url")!!, o.str("file")),
+                campaignUrl = o.str("campaign_url"),
             )
         }
     }
