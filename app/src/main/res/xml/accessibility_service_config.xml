@@ -8,7 +8,7 @@
   (TikTok ma viac variantov: musically, trill, musically.go).
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeViewClicked|typeViewTextChanged|typeViewSelected|typeViewScrolled|typeWindowStateChanged"
+    android:accessibilityEventTypes="typeViewClicked|typeViewTextChanged|typeViewSelected|typeViewScrolled|typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds|flagIncludeNotImportantViews|flagRetrieveInteractiveWindows"
     android:canPerformGestures="true"

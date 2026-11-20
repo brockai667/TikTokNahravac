@@ -1959,7 +1959,7 @@ class Replayer(
             return pfail("YouTube: Switch account sa nenašlo")
         }
         tap(sw)
-        val row = pollApp(YT, 10_000L) { nodes ->
+        val row = pollApp(YT, 20_000L) { nodes ->
             nodes.firstOrNull { n ->
                 onScreen(n) && labels(n).any { l ->
                     l.startsWith("$name,", ignoreCase = true) || l.startsWith("Selected account: $name,", ignoreCase = true)
