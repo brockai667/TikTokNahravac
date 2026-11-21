@@ -18,7 +18,29 @@ object AutoRun {
     @Volatile
     private var lastState = ""
 
-    /** Najnovší nehotový diel každého kanála; pri [auto] sa vynechajú diely, ktoré už mali [MAX_TRIES] samočinné pokusy. */
+    /** Koľko dielov kanála sa načíta na výber (diely z budúcnosti sa už pri načítaní vynechajú). */
+    const val FETCH_LIMIT = 30
+
+    /**
+     * Čistý výber jedného dielu sady: [oldestFirst] sú vydané diely od najstaršieho; prvý diel, ktorý ešte treba
+     * (nie je hotový na TikToku a má ešte pokusy, alebo je hotový a čakajú naň YouTube/Instagram), vyhrá.
+     * Vráti dvojicu (diel, len mobil) alebo null.
+     */
+    fun <T> pickNext(oldestFirst: List<T>, isDone: (T) -> Boolean, hasTriesLeft: (T) -> Boolean, phonePending: (T) -> Boolean): Pair<T, Boolean>? {
+        for (e in oldestFirst) {
+            if (isDone(e)) {
+                if (phonePending(e)) return e to true
+            } else if (hasTriesLeft(e)) {
+                return e to false
+            }
+        }
+        return null
+    }
+
+    /**
+     * Najstarší nehotový vydaný diel každého kanála (nie starší než 24 h, pozri [PhonePosts.isFresh]), jeden na kanál a beh;
+     * pri [auto] sa vynechajú diely, ktoré už mali [MAX_TRIES] samočinné pokusy.
+     */
     fun collect(app: Context, auto: Boolean): List<Replayer.Item> {
         val items = ArrayList<Replayer.Item>()
         // Kľúč phone_posts: diel, ktorý je už na TikToku, sa donahrá na chýbajúce platformy (YouTube/Instagram).
@@ -30,13 +52,14 @@ object AutoRun {
         for (ch in Repo.loadChannels(app)) {
             if (!Repo.isSupported(ch)) continue
             try {
-                val newest = Repo.fetchEpisodes(ch, 3).firstOrNull() ?: continue
-                if (Store.isDone(app, newest.key)) {
-                    if (PhonePosts.pending(app, newest, phone).isNotEmpty()) items.add(Replayer.Item(newest, newest.text, phoneOnly = true))
-                    continue
-                }
-                if (auto && Store.autoTries(app, newest.key) >= MAX_TRIES) continue
-                items.add(Replayer.Item(newest, newest.text))
+                val eps = Repo.fetchEpisodes(ch, FETCH_LIMIT).filter { PhonePosts.isFresh(it) }.sortedBy { Repo.instantOf(it.due) }
+                val pick = pickNext(
+                    eps,
+                    isDone = { Store.isDone(app, it.key) },
+                    hasTriesLeft = { !auto || Store.autoTries(app, it.key) < MAX_TRIES },
+                    phonePending = { PhonePosts.pending(app, it, phone).isNotEmpty() },
+                ) ?: continue
+                items.add(Replayer.Item(pick.first, pick.first.text, phoneOnly = pick.second))
             } catch (e: Exception) {
                 Log.w(TAG, "kanal ${ch.name}: ${e.message}")
             }

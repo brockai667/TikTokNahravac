@@ -1719,6 +1719,10 @@ class Replayer(
         Log.i(RunAllReceiver.TAG, "phone: $msg")
     }
 
+    /** Nastaví sa tesne pred ťukom na konečné Share (Instagram) / Upload (YouTube); odvtedy sa príspevok už nikdy nesmie skúšať znova. */
+    @Volatile
+    private var phoneClicked = false
+
     private fun pfail(reason: String, clicked: Boolean = false): SubmitResult {
         plog("zlyhalo: $reason")
         return SubmitResult(false, reason, false, clicked)
@@ -1875,6 +1879,7 @@ class Replayer(
             if (stopped) return
             val key = PhonePosts.key(ep, platform)
             Store.addPostTry(service, key)
+            phoneClicked = false
             val uri = phoneVideoUri(ep)
             val r = if (uri == null) {
                 pfail("video sa nepodarilo stiahnuť")
@@ -1882,16 +1887,19 @@ class Replayer(
                 try {
                     if (platform == PhonePosts.YOUTUBE) postYoutube(ep, uri, false) else postInstagram(ep, uri, false)
                 } catch (e: Exception) {
-                    pfail("chyba: ${e.javaClass.simpleName}: ${e.message ?: ""}")
+                    pfail("chyba: ${e.javaClass.simpleName}: ${e.message ?: ""}", clicked = phoneClicked)
                 }
             }
-            if (stopped && !r.ok) return
-            Diag.appendPhonePost(service, ep, platform, r.ok, r.reason, false)
-            if (r.ok) {
+            // Po ťuku na Share/Upload sa už nikdy neskúša znova, nech dopadlo čokoľvek (aj pri zastavení).
+            val sent = r.ok || r.clicked || phoneClicked
+            if (stopped && !sent) return
+            val reason = if (!r.ok && sent) "odoslané, neoverené (${r.reason})" else r.reason
+            Diag.appendPhonePost(service, ep, platform, r.ok, reason, false)
+            if (sent) {
                 Store.setPostDone(service, key)
                 PhonePosts.addLocalSubmit(service, ep, platform)
             }
-            overlay.show("$platform: ${ep.channel.name} – ${if (r.ok) "nahrané" else "zlyhalo: ${r.reason}"}", stopButton())
+            overlay.show("$platform: ${ep.channel.name} – ${if (r.ok) "nahrané" else if (sent) "odoslané, neoverené" else "zlyhalo: ${r.reason}"}", stopButton())
             goHome()
         }
     }
@@ -2188,6 +2196,7 @@ class Replayer(
         }
 
         overlay.show("YouTube: ${ep.channel.name} – nahrávam…", stopButton())
+        phoneClicked = true
         tap(upload)
         val start = SystemClock.uptimeMillis()
         while (!stopped && SystemClock.uptimeMillis() - start < 30_000L) {
@@ -2406,9 +2415,10 @@ class Replayer(
         }
 
         overlay.show("Instagram: ${ep.channel.name} – zverejňujem…", stopButton())
+        phoneClicked = true
         tap(share)
         val start = SystemClock.uptimeMillis()
-        while (!stopped && SystemClock.uptimeMillis() - start < 45_000L) {
+        while (!stopped && SystemClock.uptimeMillis() - start < 120_000L) {
             sleepStoppable(1_000)
             if (dlSheet()) continue
             val now = appNodes(IG)
@@ -2419,6 +2429,6 @@ class Replayer(
                 return SubmitResult(true, "nahrané")
             }
         }
-        return pfail(if (stopped) "zastavené po kliknutí na Share (výsledok neznámy)" else "tok zdieľania nezmizol do 45 s po Share", clicked = true)
+        return pfail(if (stopped) "zastavené po kliknutí na Share (výsledok neznámy)" else "tok zdieľania nezmizol do 120 s po Share", clicked = true)
     }
 }

@@ -81,6 +81,12 @@ object Repo {
         }
     }
 
+    /** False pre diel, ktorého čas vydania (created_at/due) ešte nenastal; diel bez dátumu sa ukáže. */
+    fun isReleased(due: String?): Boolean {
+        val at = instantOf(due) ?: return true
+        return !at.isAfter(Instant.now())
+    }
+
     /** False pre diel starší než [Channel.since]; diel bez dátumu sa ukáže. */
     private fun afterSince(channel: Channel, due: String?): Boolean {
         val since = instantOf(channel.since) ?: return true
@@ -115,7 +121,7 @@ object Repo {
         }
         // Stabilné triedenie: rovnaký dátum ponechá poradie z feedu.
         val sorted = raw.sortedByDescending { it.createdOf() ?: "" }
-            .filter { afterSince(channel, it.createdOf()) }
+            .filter { afterSince(channel, it.createdOf()) && isReleased(it.createdOf()) }
         return sorted.take(limit).mapIndexed { i, o ->
             val title = o.str("title") ?: o.str("file") ?: "Video"
             val tags = (o.optJSONArray("hashtags")?.takeIf { it.length() > 0 } ?: brandTags)
@@ -193,7 +199,7 @@ object Repo {
                 )
             )
         }
-        return list.filter { afterSince(channel, it.due) }.sortedByDescending { it.number }.take(limit)
+        return list.filter { afterSince(channel, it.due) && isReleased(it.due) }.sortedByDescending { it.number }.take(limit)
     }
 
     /** Kľúč `phone_posts` navrchu feedu ("youtube", "instagram"): na ktoré platformy nahráva diel aj mobil. Chýba = prázdna množina. */
