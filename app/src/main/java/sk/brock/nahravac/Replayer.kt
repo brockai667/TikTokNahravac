@@ -942,7 +942,12 @@ class Replayer(
 
         // c) dialóg „Choose clips“
         val chooseNode = pollChrome(CHOOSE_WAIT_MS) { nodes -> nodes.firstOrNull { txt(it)?.contains("Choose clips") == true } }
-            ?: return fail("dialóg Choose clips sa neotvoril")
+        if (chooseNode == null) {
+            // 23. 11.: dialóg sa často otvorí v stave „No new clips yet“ (príspevok ešte nezaindexovaný) alebo pomaly;
+            // oboje sa opraví samo, preto nový pokus o 60 s namiesto konečného zlyhania.
+            return if (hasDialog(chromeNodes())) failClosing("dialóg bez klipov (No new clips yet)", retry = true)
+            else fail("dialóg Choose clips sa neotvoril", retry = true)
+        }
         // d) dlaždice (môžu sa načítať s oneskorením)
         pollChrome(10_000L) { nodes -> readTiles(nodes).takeIf { it.isNotEmpty() } }
             ?: return failClosing("v dialógu nie sú žiadne dlaždice", retry = true)
@@ -1271,14 +1276,10 @@ class Replayer(
                 Store.setDone(service, ep.key, true)
                 var posted = confirmPosted(step)
                 if (!posted && !stopped) {
-                    // Uverejniť stále svieti = video nie je uverejnené (inak by TikTok obrazovku zavrel) -> ešte raz.
-                    runLog.add("$n: Uverejniť ešte svieti, ťukám znova")
-                    posted = when (act(step, ep.channel, caption)) {
-                        // tlačidlo medzitým zmizlo = TikTok už uverejňuje
-                        StepResult.NOT_FOUND -> true
-                        StepResult.OK -> confirmPosted(step)
-                        else -> false
-                    }
+                    // Uverejniť stále svieti: druhý ťuk by pri pomalom nahrávaní poslal video dvakrát (23. 11.),
+                    // preto sa už len čaká ešte raz tak dlho; nepotvrdené = UNSURE, kanál sa aj tak neopakuje.
+                    runLog.add("$n: Uverejniť ešte svieti, čakám (bez druhého ťuku)")
+                    posted = confirmPosted(step)
                 }
                 if (stopped) return Outcome.STOPPED
                 if (!posted) {
@@ -2499,17 +2500,22 @@ class Replayer(
         phoneClicked = true
         tap(share)
         val start = SystemClock.uptimeMillis()
+        var gone = 0   // koľko sekúnd za sebou už na obrazovke nie je žiadne tlačidlo Share
         while (!stopped && SystemClock.uptimeMillis() - start < 120_000L) {
             sleepStoppable(1_000)
             if (dlSheet()) continue
             val now = appNodes(IG)
-            if (now.isNotEmpty() && has(now, "New reel") == null && byId(now, "share_button") == null && shareBtn(now) == null) {
-                plog("ig: tok zdieľania zmizol, počkám 20 s")
+            val noShare = now.isNotEmpty() && byId(now, "share_button") == null && shareBtn(now) == null
+            gone = if (noShare) gone + 1 else 0
+            // 23. 11.: „New reel“ môže ostať v texte (napr. lišta nahrávania vo feede), Share zmizne vždy.
+            if (noShare && (has(now, "New reel") == null || gone >= 8)) {
+                plog("ig: tok zdieľania zmizol${if (gone >= 8) " (Share preč 8 s)" else ""}, počkám 20 s")
                 sleepStoppable(20_000)
                 dlSheet()
                 return SubmitResult(true, "nahrané")
             }
         }
+        if (!stopped) logScreen("ig po Share", IG)
         return pfail(if (stopped) "zastavené po kliknutí na Share (výsledok neznámy)" else "tok zdieľania nezmizol do 120 s po Share", clicked = true)
     }
 }
