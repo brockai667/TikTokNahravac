@@ -744,7 +744,7 @@ class Replayer(
                 clog("$channel: pokus $attempt/$attempts${if (dry) " (dry)" else ""}")
                 clickedSubmit = false
                 r = try {
-                    submitOnce(channel, url, prefix, acct, dry)
+                    submitOnce(channel, url, prefix, acct, dry, caption, platform)
                 } catch (e: Exception) {
                     fail("chyba: ${e.javaClass.simpleName}: ${e.message ?: ""}", clicked = clickedSubmit)
                 }
@@ -820,6 +820,36 @@ class Replayer(
     /** Cieľová dlaždica: text začína popisom (prvých 40 znakov) a obsahuje „, @účet,“. */
     private fun isTarget(t: Tile, prefix: String, acct: String): Boolean =
         t.text.startsWith(prefix) && t.text.lowercase(Locale.ROOT).contains(", @$acct,")
+
+    /**
+     * Viac dlaždíc s rovnakým začiatkom popisu a účtom (TikTok aj Instagram majú pri chatdiff ten istý handle):
+     * 1) názov platformy v texte dlaždice, 2) najdlhšia zhoda s celým popisom, 3) pri TikToku dlaždica bez „twitch.tv“
+     * (popis na Instagrame má navyše „Clip from twitch.tv/…“). Inak vráti všetky a odoslanie zlyhá ako doteraz.
+     */
+    private fun narrowTiles(c: List<Tile>, caption: String, platform: String?): List<Tile> {
+        if (c.size <= 1) return c
+        val p = (platform ?: "tiktok").lowercase(Locale.ROOT)
+        val byPlat = c.filter { it.text.lowercase(Locale.ROOT).contains(p) }
+        if (byPlat.size == 1) return byPlat
+        val full = norm(caption).lowercase(Locale.ROOT)
+        if (full.isNotEmpty()) {
+            fun common(t: Tile): Int {
+                val a = t.text.lowercase(Locale.ROOT)
+                var i = 0
+                while (i < a.length && i < full.length && a[i] == full[i]) i++
+                return i
+            }
+            val scored = c.map { it to common(it) }
+            val best = scored.maxOf { it.second }
+            val top = scored.filter { it.second == best }.map { it.first }
+            if (top.size == 1) return top
+        }
+        if (p == "tiktok" && !full.contains("twitch.tv")) {
+            val plain = c.filter { !it.text.contains("twitch.tv", ignoreCase = true) }
+            if (plain.size == 1) return plain
+        }
+        return c
+    }
 
     private fun findRequirementsBox(nodes: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? =
         nodes.firstOrNull { cls(it) == CLS_CHECKBOX && txt(it)?.contains("read the requirements", ignoreCase = true) == true }
@@ -904,7 +934,10 @@ class Replayer(
     }
 
     /** Jeden pokus o odoslanie podľa postupu a) až i). */
-    private fun submitOnce(label: String, url: String, prefix: String, acct: String, dry: Boolean): SubmitResult {
+    private fun submitOnce(
+        label: String, url: String, prefix: String, acct: String, dry: Boolean,
+        caption: String = "", platform: String? = null,
+    ): SubmitResult {
         openCampaignDialog(label, url)?.let { return it }
 
         // c) dialóg „Choose clips“
@@ -916,17 +949,22 @@ class Replayer(
 
         // e) práve jedna cieľová dlaždica
         val first = readTiles(chromeNodes())
-        val targets = first.filter { isTarget(it, prefix, acct) }
-        if (targets.isEmpty()) return failClosing("dlaždica príspevku sa nenašla (${first.size} dlaždíc)", retry = true)
-        if (targets.size > 1) return failClosing("zhoduje sa viac dlaždíc (${targets.size})")
-        clog("$label: cieľová dlaždica: ${targets[0].text.take(120)}")
+        val cands = first.filter { isTarget(it, prefix, acct) }
+        if (cands.isEmpty()) return failClosing("dlaždica príspevku sa nenašla (${first.size} dlaždíc)", retry = true)
+        val targets = narrowTiles(cands, caption, platform)
+        if (targets.size > 1) {
+            for (t in targets) clog("$label: kandidát: ${t.text.take(200)}")
+            return failClosing("zhoduje sa viac dlaždíc (${targets.size})")
+        }
+        val chosen = targets[0].text
+        clog("$label: cieľová dlaždica: ${chosen.take(120)}")
 
         // f) výber: cieľová zaškrtnutá, všetky ostatné nie (po každom kliku nový strom)
         overlay.show("Kampaň: $label – vyberám príspevok…", stopButton())
         for (i in 1..12) {
             if (stopped) return failClosing("zastavené")
             val tiles = readTiles(chromeNodes())
-            val bad = tiles.firstOrNull { isTarget(it, prefix, acct) != it.checked } ?: break
+            val bad = tiles.firstOrNull { (it.text == chosen) != it.checked } ?: break
             tap(bad.node)
             sleepStoppable(700)
         }
@@ -1991,47 +2029,90 @@ class Replayer(
         return t
     }
 
-    /** Prepne kanál v appke YouTube; null = kanál [name] je aktívny, inak zlyhanie. */
+    /**
+     * Prepne kanál v appke YouTube; null = kanál [name] je aktívny, inak zlyhanie.
+     * YouTube 21.46 (21. 11. 2026): na karte You je vľavo hore tlačidlo „Accounts“ (predtým „Switch account“) a riadky
+     * účtov v okne „Switch accounts“ nemajú pre prístupnosť žiadny text. Preto: riadok podľa mena, ak ho vidno, inak
+     * podľa poradia (najviac prvé dva riadky, ostatné účty sa nikdy neťukajú) a vždy overenie podľa mena kanála v hlavičke.
+     */
     private fun ytSwitchChannel(name: String): SubmitResult? {
         if (!launchApp(YT)) return pfail("YouTube sa nespustil")
         val size = Nodes.screenSize(service)
-        val you = pollApp(YT, 25_000L) { nodes ->
-            val m = nodes.filter { n -> onScreen(n) && labels(n).any { it.trim().equals("You", ignoreCase = true) } }
-            m.firstOrNull { Nodes.bounds(it).top > size.y * 0.6 } ?: m.firstOrNull()
-        }
-        if (you == null) {
-            logScreen("yt", YT)
-            return pfail("YouTube: karta You sa nenašla")
-        }
-        sleepStoppable(1_000)
-        tap(you)
-        val sw = pollApp(YT, 10_000L) { has(it, "Switch account") }
-        if (sw == null) {
-            logScreen("yt", YT)
-            return pfail("YouTube: Switch account sa nenašlo")
-        }
-        tap(sw)
-        val row = pollApp(YT, 20_000L) { nodes ->
-            nodes.firstOrNull { n ->
-                onScreen(n) && labels(n).any { l ->
-                    l.startsWith("$name,", ignoreCase = true) || l.startsWith("Selected account: $name,", ignoreCase = true)
+        for (attempt in 1..3) {
+            if (stopped) return pfail("zastavené")
+            val you = pollApp(YT, 25_000L) { nodes ->
+                val m = nodes.filter { n -> onScreen(n) && labels(n).any { it.trim().equals("You", ignoreCase = true) } }
+                m.firstOrNull { Nodes.bounds(it).top > size.y * 0.6 } ?: m.firstOrNull()
+            }
+            if (you == null) {
+                logScreen("yt", YT)
+                return pfail("YouTube: karta You sa nenašla")
+            }
+            sleepStoppable(1_000)
+            tap(you)
+            val active = pollApp(YT, 6_000L) { nodes ->
+                nodes.firstOrNull { n ->
+                    onScreen(n) && Nodes.bounds(n).top < size.y * 0.3 && labels(n).any { it.trim().equals(name, ignoreCase = true) }
                 }
             }
-        }
-        if (row == null) {
-            logScreen("yt", YT)
-            back()
-            return pfail("YouTube: kanál $name nie je v zozname účtov")
-        }
-        val selected = labels(row).any { it.startsWith("Selected account:", ignoreCase = true) }
-        plog("yt: kanál $name ${if (selected) "už je vybraný" else "prepínam"}")
-        if (selected) {
-            back(1_500)
-        } else {
-            tap(row)
+            if (active != null) {
+                plog("yt: kanál $name je aktívny")
+                return null
+            }
+            if (attempt == 3) break
+            val sw = pollApp(YT, 10_000L) { nodes -> exact(nodes, "Accounts") ?: has(nodes, "Switch account") }
+            if (sw == null) {
+                logScreen("yt", YT)
+                return pfail("YouTube: tlačidlo Accounts sa nenašlo")
+            }
+            tap(sw)
+            sleepStoppable(1_500)
+            val rows = pollApp(YT, 10_000L) { nodes -> ytAccountRows(nodes).takeIf { it.size >= 2 } }
+            if (rows == null) {
+                logScreen("yt", YT)
+                back()
+                return pfail("YouTube: zoznam účtov sa neotvoril")
+            }
+            val named = rows.firstOrNull { r ->
+                subtreeLabels(r).any { l ->
+                    l.trim().equals(name, ignoreCase = true) || l.startsWith("$name,", ignoreCase = true) ||
+                        l.startsWith("Selected account: $name,", ignoreCase = true)
+                }
+            }
+            val pick = named ?: rows[attempt - 1]
+            plog("yt: ťukám účet ${if (named != null) "podľa mena" else "č. $attempt podľa poradia"} (${rows.size} riadkov)")
+            tap(pick)
             sleepStoppable(3_000)
         }
-        return null
+        logScreen("yt", YT)
+        return pfail("YouTube: kanál $name sa nepodarilo prepnúť")
+    }
+
+    /** Riadky okna „Switch accounts“ zhora nadol bez posledného („Manage accounts“). */
+    private fun ytAccountRows(nodes: List<AccessibilityNodeInfo>): List<AccessibilityNodeInfo> {
+        val list = byId(nodes, "contextual_sheet_elements_recycler_view") ?: return emptyList()
+        val lb = Nodes.bounds(list)
+        val rows = nodes.filter { n ->
+            if (!n.isClickable || !onScreen(n)) return@filter false
+            val r = Nodes.bounds(n)
+            r.top >= lb.top && r.bottom <= lb.bottom + 2 && r.height() in 90..260 && r.width() > lb.width() / 2
+        }.distinctBy { Nodes.bounds(it).top }.sortedBy { Nodes.bounds(it).top }
+        return if (rows.size >= 2) rows.dropLast(1) else rows
+    }
+
+    /** Texty a popisy uzla a jeho potomkov (do hĺbky 6). */
+    private fun subtreeLabels(n: AccessibilityNodeInfo): List<String> {
+        val out = ArrayList<String>()
+        fun go(x: AccessibilityNodeInfo, d: Int) {
+            out.addAll(labels(x))
+            if (d >= 6) return
+            for (i in 0 until x.childCount) {
+                val c = try { x.getChild(i) } catch (e: Exception) { null } ?: continue
+                go(c, d + 1)
+            }
+        }
+        go(n, 0)
+        return out
     }
 
     /** Zahodí rozpracované nahrávanie: Navigate up -> dialóg „Discard changes?“ -> Discard. */
