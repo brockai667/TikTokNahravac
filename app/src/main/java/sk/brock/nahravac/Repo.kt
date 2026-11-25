@@ -45,6 +45,7 @@ object Repo {
                     suffix = o.str("suffix"),
                     since = o.str("since"),
                     cover = o.str("cover"),
+                    dueGate = o.optBoolean("dueGate", false),
                 )
             )
         }
@@ -86,6 +87,17 @@ object Repo {
         val since = instantOf(channel.since) ?: return true
         val at = instantOf(due) ?: return true
         return !at.isBefore(since)
+    }
+
+    /**
+     * Pri [Channel.dueGate] false pre diel, ktorého deň termínu (v čase telefónu) ešte nenastal;
+     * bez dueGate alebo bez dátumu vždy true. Bez toho by sa z feedu so sériou dopredu nahral posledný diel série.
+     */
+    private fun dueReached(channel: Channel, due: String?): Boolean {
+        if (!channel.dueGate) return true
+        val at = instantOf(due) ?: return true
+        val zone = ZoneId.systemDefault()
+        return !at.atZone(zone).toLocalDate().isAfter(LocalDate.now(zone))
     }
 
     /** Pripojí [Channel.suffix], ak ho text ešte neobsahuje. */
@@ -179,7 +191,8 @@ object Repo {
                 )
             )
         }
-        return list.filter { afterSince(channel, it.due) }.sortedByDescending { it.number }.take(limit)
+        return list.filter { afterSince(channel, it.due) && dueReached(channel, it.due) }
+            .sortedByDescending { it.number }.take(limit)
     }
 
     private fun httpGet(url: String): String {

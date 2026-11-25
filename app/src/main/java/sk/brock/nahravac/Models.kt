@@ -20,6 +20,8 @@ data class Channel(
     val since: String? = null,
     /** Šablóna adresy obalu: {video_base} = adresa videa bez ".mp4", {slug} = názov súboru videa bez ".mp4". Bez nej sa obal vezme zo snímky videa. */
     val cover: String? = null,
+    /** True = diel sa ukáže až v deň svojho termínu `due` (feed má celú sériu dopredu, napr. Curio ORBIT). */
+    val dueGate: Boolean = false,
 ) {
     /** Krátky ASCII identifikátor kanála (do názvov súborov a kľúčov). */
     val slug: String

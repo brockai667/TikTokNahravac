@@ -45,6 +45,7 @@
     "tiktok": "@curio6673",
     "stateUrl": "https://raw.githubusercontent.com/brockai667/ScienceFactory/main/orbit/tiktok.json",
     "cover": "{video_base}-cover.jpg",
-    "since": "2026-11-01T00:00:00Z"
+    "since": "2026-11-01T00:00:00Z",
+    "dueGate": true
   }
 ]
