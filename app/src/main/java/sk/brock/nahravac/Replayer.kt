@@ -903,6 +903,11 @@ class Replayer(
                 else -> fail("tlačidlo Submit clip sa neukázalo")
             }
         }
+        // 25. 11.: the Kai Cenat pool stopped taking clips; the page says "Submissions closed" and the button does nothing
+        sleepStoppable(1_500)
+        if (chromeNodes().any { t -> txt(t)?.let { it.contains("Submissions closed", true) || it.contains("isn't taking new clips", true) } == true }) {
+            return fail("kampaň je uzavretá (Submissions closed)")
+        }
         overlay.show("Kampaň: $label – otváram výber klipov…", stopButton())
         tap(open)
         return null
@@ -1959,6 +1964,7 @@ class Replayer(
             null
         }
         val uri = ep?.let { galleryUriByName(it.fileName) ?: phoneVideoUri(it) }
+        phoneClicked = false
         val r = if (ep == null || uri == null) {
             pfail("diel sady $set sa nenašiel alebo nestiahol")
         } else {
@@ -1969,6 +1975,12 @@ class Replayer(
             }
         }
         if (ep != null) Diag.appendPhonePost(service, ep, platform, r.ok, r.reason, dry)
+        // 25. 11.: an upload test that really published (not dry) must also go to its campaign, like an automatic
+        // upload does; on 23. 11. clip-129 (668 views) went out this way and was never submitted.
+        if (ep != null && !dry && url.isNullOrBlank() && (r.ok || r.clicked || phoneClicked)) {
+            Store.setPostDone(service, PhonePosts.key(ep, platform))
+            PhonePosts.addLocalSubmit(service, ep, platform)
+        }
         Log.i(RunAllReceiver.TAG, "UPLOAD_TEST: $platform $set dry=$dry ok=${r.ok} ${r.reason}")
         overlay.show("Nahratie (skúška${if (dry) ", dry" else ""}): $platform – ${if (r.ok) "OK" else "zlyhalo"} – ${r.reason}")
         overlay.hideAfter(8_000)
